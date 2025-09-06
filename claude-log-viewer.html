@@ -1,1532 +1,1930 @@
-<!doctype html>
-<html lang="en">
-
-<head>
-  <meta charset="utf-8" />
-  <title>Claude Code API Log Viewer</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
-  <style>
-    :root {
-      --bg: #0b0d12;
-      --card: #121622;
-      --muted: #1a2030;
-      --border: #2a3348;
-      --text: #e6e9f2;
-      --sub: #a7b0c3;
-      --accent: #7aa2ff;
-      --pill-bg: #0f1729;
-      --pill-br: #2a3a6b;
-      --good: #2ecc71;
-      --warn: #f1c40f;
-      --bad: #e74c3c;
-      --shadow: 0 6px 24px rgba(0, 0, 0, .35), 0 2px 8px rgba(0, 0, 0, .25);
-      --radius: 16px;
-      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-    }
-
-    * {
-      box-sizing: border-box
-    }
-
-    html,
-    body {
-      height: 100%
-    }
-
-    body {
-      margin: 0;
-      background: linear-gradient(180deg, #0a0d14, #0b0d12 40%);
-      color: var(--text);
-      font-family: var(--sans)
-    }
-
-    .container {
-      max-width: 1400px;
-      margin: 24px auto;
-      padding: 0 16px
-    }
-
-    .topbar {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 16px;
-      flex-wrap: wrap;
-    }
-
-    .file-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 14px;
-      border: 1px solid var(--border);
-      background: var(--card);
-      color: var(--text);
-      border-radius: 12px;
-      cursor: pointer;
-      box-shadow: var(--shadow)
-    }
-
-    .file-name {
-      color: var(--sub);
-      font-size: .9rem
-    }
-
-    .stats {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-
-    .stat-card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 12px 16px;
-      box-shadow: var(--shadow);
-      min-width: 120px;
-    }
-
-    .stat-value {
-      font-size: 1.5rem;
-      font-weight: 700;
-      color: var(--accent);
-    }
-
-    .stat-label {
-      font-size: 0.8rem;
-      color: var(--sub);
-      margin-top: 2px;
-    }
-
-    .timeline {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      margin-top: 16px;
-    }
-
-    .timeline-header {
-      padding: 14px 16px;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .timeline-title {
-      font-size: 1.1rem;
-      font-weight: 600;
-    }
-
-    .timeline-controls {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    }
-
-    .control-btn {
-      padding: 6px 12px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: var(--muted);
-      color: var(--text);
-      cursor: pointer;
-      font-size: 0.85rem;
-      transition: all 0.2s;
-    }
-
-    .control-btn:hover {
-      background: var(--accent);
-      border-color: var(--accent);
-    }
-
-    .control-btn.active {
-      background: var(--accent);
-      border-color: var(--accent);
-      color: white;
-    }
-
-    .timeline-body {
-      padding: 16px;
-      max-height: 600px;
-      overflow-y: auto;
-    }
-
-    .log-entry {
-      display: flex;
-      gap: 16px;
-      margin-bottom: 16px;
-      padding: 12px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      background: var(--muted);
-      transition: all 0.2s;
-      width: 100%;
-      box-sizing: border-box;
-    }
-
-    .log-entry:hover {
-      border-color: var(--accent);
-      background: #1a2040;
-    }
-
-    .log-timestamp {
-      flex-shrink: 0;
-      width: 80px;
-      font-family: var(--mono);
-      font-size: 0.8rem;
-      color: var(--sub);
-      text-align: right;
-      padding-top: 2px;
-    }
-
-    .log-content {
-      flex: 1;
-    }
-
-    .log-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 8px;
-    }
-
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 8px;
-      border: 1px solid var(--pill-br);
-      border-radius: 999px;
-      background: var(--pill-bg);
-      color: #cfe1ff;
-      font-family: var(--mono);
-      font-size: .75rem;
-      margin-right: 6px;
-    }
-
-    .pill.method-GET { background: #0f4d0f; border-color: #2d5a2d; }
-    .pill.method-POST { background: #1a4d1a; border-color: #2d6b2d; }
-    .pill.status-200 { background: #0f3f0f; border-color: var(--good); color: var(--good); }
-    .pill.status-403 { background: #4d0f0f; border-color: var(--bad); color: var(--bad); }
-    .pill.status-500 { background: #4d0f0f; border-color: var(--bad); color: var(--bad); }
-
-    .log-url {
-      font-family: var(--mono);
-      font-size: 0.85rem;
-      color: var(--text);
-      margin-bottom: 6px;
-      word-break: break-all;
-    }
-
-    .log-details {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-
-    .detail-section {
-      flex: 1;
-      min-width: 200px;
-    }
-
-    .detail-title {
-      font-size: 0.8rem;
-      font-weight: 600;
-      color: var(--sub);
-      margin-bottom: 4px;
-    }
-
-    .detail-content {
-      background: #0d1320;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 8px;
-      font-size: 0.8rem;
-      max-height: 120px;
-      overflow-y: auto;
-    }
-
-    .content-preview {
-      font-family: var(--sans);
-      line-height: 1.4;
-    }
-
-    .content-preview pre {
-      font-family: var(--mono);
-      background: #0b1120;
-      padding: 8px;
-      border-radius: 6px;
-      border: 1px solid #223;
-      margin: 4px 0;
-    }
-
-    .content-preview h1,
-    .content-preview h2,
-    .content-preview h3 {
-      margin: 0.2rem 0 0.4rem;
-      font-size: 0.9rem;
-    }
-
-    .content-preview p {
-      margin: 0.3rem 0;
-    }
-
-    .content-preview ul {
-      margin: 0.2rem 0 0.2rem 1.2rem;
-    }
-
-    .content-preview blockquote {
-      margin: 6px 0;
-      padding: 6px 10px;
-      border-left: 3px solid #385;
-      opacity: 0.95;
-    }
-
-    .params-row {
-      display: flex;
-      gap: 8px;
-      margin: 6px 0;
-      flex-wrap: wrap;
-    }
-
-    .param-pill {
-      display: inline-flex;
-      padding: 3px 8px;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      background: var(--pill-bg);
-      color: var(--sub);
-      font-family: var(--mono);
-      font-size: 0.7rem;
-    }
-
-    .collapsible-section {
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      margin: 6px 0;
-      background: rgba(26, 32, 48, 0.5);
-    }
-
-    .section-header {
-      padding: 8px 12px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      background: rgba(42, 51, 72, 0.3);
-      border-radius: 8px 8px 0 0;
-      font-size: 0.8rem;
-      font-weight: 600;
-      color: var(--accent);
-      user-select: none;
-    }
-
-    .section-header:hover {
-      background: rgba(42, 51, 72, 0.5);
-    }
-
-    .section-toggle {
-      font-family: var(--mono);
-      color: var(--accent);
-      font-size: 0.7rem;
-    }
-
-    .section-content {
-      padding: 8px 12px;
-      border-top: 1px solid var(--border);
-      display: none;
-    }
-
-    .section-content.expanded {
-      display: block;
-    }
-
-    .message-item {
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      margin: 4px 0;
-      background: rgba(13, 19, 32, 0.7);
-    }
-
-    .message-header {
-      padding: 6px 10px;
-      background: rgba(26, 32, 48, 0.5);
-      border-radius: 6px 6px 0 0;
-      font-size: 0.75rem;
-      font-weight: 600;
-      color: var(--text);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .role-badge {
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 0.65rem;
-      font-weight: 700;
-    }
-
-    .role-user { background: #1a4d1a; color: #90ee90; }
-    .role-assistant { background: #1a1a4d; color: #add8e6; }
-    .role-system { background: #4d1a1a; color: #ffa07a; }
-
-    .expandable {
-      cursor: pointer;
-      position: relative;
-    }
-
-    .expandable:before {
-      content: '+';
-      position: absolute;
-      right: 8px;
-      top: 8px;
-      color: var(--accent);
-      font-weight: bold;
-    }
-
-    .expandable.expanded:before {
-      content: '-';
-    }
-
-    .expandable.expanded .detail-content {
-      max-height: none;
-    }
-
-    .error-message {
-      background: rgba(231, 76, 60, 0.1);
-      border: 1px solid var(--bad);
-      color: var(--bad);
-    }
-
-    .success-message {
-      background: rgba(46, 204, 113, 0.1);
-      border: 1px solid var(--good);
-      color: var(--good);
-    }
-
-    .filter-bar {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      margin-bottom: 16px;
-      flex-wrap: wrap;
-    }
-
-    .filter-input {
-      padding: 8px 12px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: var(--muted);
-      color: var(--text);
-      font-size: 0.85rem;
-      min-width: 200px;
-    }
-
-    .filter-input:focus {
-      outline: none;
-      border-color: var(--accent);
-    }
-
-    .no-data {
-      text-align: center;
-      padding: 40px;
-      color: var(--sub);
-    }
-
-    .hidden {
-      display: none;
-    }
-
-    pre {
-      margin: 0;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-
-    .modal {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.7);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-    }
-
-    .modal.show {
-      display: flex;
-    }
-
-    .modal-content {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      width: 90%;
-      max-width: 900px;
-      max-height: 80vh;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .modal-header {
-      padding: 16px 20px;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .modal-title {
-      font-size: 1.1rem;
-      font-weight: 600;
-      color: var(--text);
-    }
-
-    .modal-close {
-      background: none;
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 8px 12px;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 0.9rem;
-    }
-
-    .modal-close:hover {
-      background: var(--muted);
-    }
-
-    .modal-body {
-      padding: 20px;
-      overflow-y: auto;
-      flex: 1;
-    }
-
-    .view-details-btn {
-      background: var(--accent);
-      border: none;
-      color: white;
-      padding: 6px 12px;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 0.8rem;
-      margin-top: 6px;
-    }
-
-    .view-details-btn:hover {
-      background: #6b91ff;
-    }
-    .todo-list{margin:4px 0}
-    .todo-item{padding:2px 0;font-size:0.8rem}
-    .todo-pending{color:var(--sub)}
-    .todo-in-progress{color:var(--good)}
-    .todo-completed{color:var(--sub);text-decoration:line-through;opacity:.8}
-  </style>
-</head>
-
-<body>
-  <div class="container">
-    <div class="topbar">
-      <label class="file-btn">
-        <input id="fileInput" type="file" accept=".jsonl,.json" hidden />
-        <span>选择 JSONL 文件</span>
-      </label>
-      <span id="fileName" class="file-name">未选择文件</span>
-      <div class="stats" id="stats">
-        <!-- 统计信息将在这里显示 -->
-      </div>
-    </div>
-
-    <div class="filter-bar" id="filterBar" style="display: none;">
-      <input type="text" id="searchInput" class="filter-input" placeholder="搜索 URL 或内容...">
-      <select id="methodFilter" class="control-btn">
-        <option value="">所有方法</option>
-        <option value="GET">GET</option>
-        <option value="POST">POST</option>
-        <option value="PUT">PUT</option>
-        <option value="DELETE">DELETE</option>
-      </select>
-      <select id="statusFilter" class="control-btn">
-        <option value="">所有状态</option>
-        <option value="2xx">2xx (成功)</option>
-        <option value="4xx">4xx (客户端错误)</option>
-        <option value="5xx">5xx (服务器错误)</option>
-      </select>
-    </div>
-
-    <div class="timeline" id="timeline" style="display: none;">
-      <div class="timeline-header">
-        <div class="timeline-title">API 请求时间线</div>
-        <div class="timeline-controls">
-          <button class="control-btn active" id="sortTime">按时间排序</button>
-          <button class="control-btn" id="sortStatus">按状态排序</button>
-        </div>
-      </div>
-      <div class="timeline-body" id="timelineBody">
-        <div class="no-data">加载中...</div>
-      </div>
-    </div>
-
-    <div class="no-data" id="noData">
-      请选择一个 JSONL 文件来查看 Claude Code API 日志
-    </div>
-  </div>
-
-  <!-- 模态框 -->
-  <div class="modal" id="detailModal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <div class="modal-title" id="modalTitle">详细内容</div>
-        <button class="modal-close" id="modalClose">关闭</button>
-      </div>
-      <div class="modal-body" id="modalBody">
-        <!-- 详细内容将在这里显示 -->
-      </div>
-    </div>
-  </div>
-
-  <script>
-    let logs = [];
-    let filteredLogs = [];
-
-    const elements = {
-      fileInput: document.getElementById('fileInput'),
-      fileName: document.getElementById('fileName'),
-      stats: document.getElementById('stats'),
-      timeline: document.getElementById('timeline'),
-      timelineBody: document.getElementById('timelineBody'),
-      filterBar: document.getElementById('filterBar'),
-      searchInput: document.getElementById('searchInput'),
-      methodFilter: document.getElementById('methodFilter'),
-      statusFilter: document.getElementById('statusFilter'),
-      noData: document.getElementById('noData'),
-      sortTime: document.getElementById('sortTime'),
-      sortStatus: document.getElementById('sortStatus')
-    };
-
-    // 文件选择处理
-    elements.fileInput.addEventListener('change', handleFileSelect);
-    elements.searchInput.addEventListener('input', applyFilters);
-    elements.methodFilter.addEventListener('change', applyFilters);
-    elements.statusFilter.addEventListener('change', applyFilters);
-    elements.sortTime.addEventListener('click', () => sortLogs('time'));
-    elements.sortStatus.addEventListener('click', () => sortLogs('status'));
-
-    function handleFileSelect(event) {
-      const file = event.target.files[0];
-      if (!file) return;
-
-      elements.fileName.textContent = file.name;
-      const reader = new FileReader();
-
-      reader.onload = function(e) {
-        try {
-          const content = e.target.result;
-          parseLogs(content);
-        } catch (error) {
-          alert('解析文件失败: ' + error.message);
-        }
-      };
-
-      reader.readAsText(file);
-    }
-
-    function parseLogs(content) {
-      logs = [];
-      const lines = content.split('\n').filter(line => line.trim());
-
-      lines.forEach((line, index) => {
-        try {
-          const entry = JSON.parse(line);
-          
-          // 计算请求和响应时间差
-          let duration = null;
-          if (entry.request?.timestamp && entry.response?.timestamp) {
-            duration = Math.round((entry.response.timestamp - entry.request.timestamp) * 1000); // 转换为毫秒
-          }
-          
-          logs.push({
-            ...entry,
-            id: index,
-            timestamp: new Date(entry.logged_at || entry.request?.timestamp * 1000 || Date.now()),
-            requestTimestamp: entry.request?.timestamp ? new Date(entry.request.timestamp * 1000) : null,
-            responseTimestamp: entry.response?.timestamp ? new Date(entry.response.timestamp * 1000) : null,
-            duration: duration
-          });
-        } catch (error) {
-          console.warn(`跳过第 ${index + 1} 行，解析失败:`, error);
-          console.warn(`行内容长度: ${line.length}`);
-          
-          // 尝试处理超长行
-          if (line.length > 100000) {
-            try {
-              // 对于超长行，先截断再尝试解析
-              const truncatedLine = line.substring(0, 50000) + '..."}]}';
-              const partialEntry = JSON.parse(truncatedLine);
-              console.warn(`部分解析成功，行 ${index + 1}`);
-              
-              logs.push({
-                ...partialEntry,
-                id: index,
-                timestamp: new Date(partialEntry.logged_at || partialEntry.request?.timestamp * 1000 || Date.now()),
-                requestTimestamp: partialEntry.request?.timestamp ? new Date(partialEntry.request.timestamp * 1000) : null,
-                responseTimestamp: partialEntry.response?.timestamp ? new Date(partialEntry.response.timestamp * 1000) : null,
-                duration: null,
-                _truncated: true
-              });
-            } catch (secondError) {
-              console.error(`完全无法解析第 ${index + 1} 行:`, secondError);
-            }
-          }
-        }
-      });
-
-      // 按时间排序
-      logs.sort((a, b) => a.timestamp - b.timestamp);
-      
-      filteredLogs = [...logs];
-      updateUI();
-    }
-
-    function updateUI() {
-      updateStats();
-      renderTimeline();
-      elements.timeline.style.display = 'block';
-      elements.filterBar.style.display = 'flex';
-      elements.noData.style.display = 'none';
-    }
-
-    function updateStats() {
-      const total = logs.length;
-      const errors = logs.filter(log => log.response?.status_code >= 400).length;
-      const success = logs.filter(log => log.response?.status_code >= 200 && log.response?.status_code < 400).length;
-      const methods = [...new Set(logs.map(log => log.request?.method).filter(Boolean))];
-
-      elements.stats.innerHTML = `
-        <div class="stat-card">
-          <div class="stat-value">${total}</div>
-          <div class="stat-label">总请求数</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value" style="color: var(--good)">${success}</div>
-          <div class="stat-label">成功</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value" style="color: var(--bad)">${errors}</div>
-          <div class="stat-label">错误</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value">${methods.length}</div>
-          <div class="stat-label">HTTP 方法</div>
-        </div>
-      `;
-    }
-
-    function renderTimeline() {
-      if (filteredLogs.length === 0) {
-        elements.timelineBody.innerHTML = '<div class="no-data">没有匹配的日志条目</div>';
-        return;
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Claude Code 日志可视化分析 - 优化版</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked@14.0.0/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.5/dist/purify.min.js"></script>
+    <style>
+      :root {
+        --bg-primary: #0b0d12;
+        --bg-secondary: #121622;
+        --border-color: #2a3348;
+        --text-primary: #e6e9f2;
+        --text-secondary: #a7b0c3;
+        --accent-color: #7aa2ff;
+        --success-color: #2ecc71;
+        --warning-color: #f1c40f;
+        --error-color: #e74c3c;
+        --gradient-bg: linear-gradient(135deg, #0b0d12 0%, #1a1f2e 100%);
+        --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+        --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Apple Color Emoji',
+          'Segoe UI Emoji';
       }
 
-      // 先清空内容
-      elements.timelineBody.innerHTML = '';
-      
-      filteredLogs.forEach((log, idx) => {
-        const entryHTML = createLogEntry(log, idx + 1);
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = entryHTML;
-        const logEntry = tempDiv.firstElementChild;
-        if (logEntry && logEntry.classList.contains('log-entry')) {
-          elements.timelineBody.appendChild(logEntry);
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: var(--sans);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        line-height: 1.6;
+        min-height: 100vh;
+      }
+
+      .container {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+
+      .header {
+        text-align: center;
+        margin-bottom: 30px;
+      }
+
+      .header h1 {
+        font-size: 2.5rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, var(--accent-color), #9bb3ff);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 10px;
+      }
+
+      .header p {
+        color: var(--text-secondary);
+        font-size: 1.1rem;
+      }
+
+      .toolbar {
+        background: var(--gradient-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        padding: 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      }
+
+      .file-section {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+      }
+
+      .file-input-wrapper {
+        position: relative;
+        overflow: hidden;
+        display: inline-block;
+      }
+
+      .file-input {
+        position: absolute;
+        left: -9999px;
+      }
+
+      .file-button {
+        background: var(--accent-color);
+        color: white;
+        padding: 12px 24px;
+        border: none;
+        border-radius: 12px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 14px;
+        transition: all 0.3s ease;
+      }
+
+      .file-button:hover {
+        background: #6690ff;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 16px rgba(122, 162, 255, 0.3);
+      }
+
+      .file-info {
+        color: var(--text-secondary);
+        font-size: 14px;
+      }
+
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin: 20px 0;
+      }
+
+      .stat-card {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 16px;
+        text-align: center;
+        transition: all 0.3s ease;
+      }
+
+      .stat-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+      }
+
+      .stat-value {
+        font-size: 2rem;
+        font-weight: 700;
+        margin-bottom: 5px;
+      }
+
+      .stat-label {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+      }
+
+      .filters {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        padding: 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+      }
+
+      .filter-row {
+        display: grid;
+        grid-template-columns: 2fr 1fr 1fr auto;
+        gap: 15px;
+        align-items: center;
+      }
+
+      .search-input,
+      .filter-select {
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 10px 12px;
+        color: var(--text-primary);
+        font-size: 14px;
+        transition: all 0.3s ease;
+      }
+
+      .search-input:focus,
+      .filter-select:focus {
+        outline: none;
+        border-color: var(--accent-color);
+        box-shadow: 0 0 0 3px rgba(122, 162, 255, 0.1);
+      }
+
+      .clear-button {
+        background: var(--error-color);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 10px 16px;
+        cursor: pointer;
+        font-size: 14px;
+        transition: all 0.3s ease;
+      }
+
+      .clear-button:hover {
+        background: #c0392b;
+      }
+
+      .timeline {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+      }
+
+      .timeline-header {
+        background: var(--gradient-bg);
+        padding: 20px;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .timeline-title {
+        font-size: 1.3rem;
+        font-weight: 600;
+      }
+
+      .sort-controls {
+        display: flex;
+        gap: 10px;
+      }
+
+      .sort-button {
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        color: var(--text-primary);
+        padding: 8px 12px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 12px;
+        transition: all 0.3s ease;
+      }
+
+      .sort-button:hover,
+      .sort-button.active {
+        background: var(--accent-color);
+        border-color: var(--accent-color);
+      }
+
+      .log-entries {
+        max-height: 70vh;
+        overflow-y: auto;
+      }
+
+      .log-entry {
+        border-bottom: 1px solid var(--border-color);
+        padding: 20px;
+        transition: all 0.3s ease;
+      }
+
+      .log-entry:hover {
+        background: rgba(122, 162, 255, 0.05);
+      }
+
+      .log-entry:last-child {
+        border-bottom: none;
+      }
+
+      .entry-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+
+      .entry-meta {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+      }
+
+      .entry-id {
+        background: var(--bg-primary);
+        padding: 4px 8px;
+        border-radius: 6px;
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
+
+      .method-badge {
+        padding: 4px 8px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .method-post {
+        background: var(--success-color);
+        color: white;
+      }
+      .method-get {
+        background: var(--accent-color);
+        color: white;
+      }
+      .method-put {
+        background: var(--warning-color);
+        color: white;
+      }
+      .method-delete {
+        background: var(--error-color);
+        color: white;
+      }
+
+      .status-badge {
+        padding: 4px 8px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .status-2xx {
+        background: var(--success-color);
+        color: white;
+      }
+      .status-4xx {
+        background: var(--warning-color);
+        color: white;
+      }
+      .status-5xx {
+        background: var(--error-color);
+        color: white;
+      }
+
+      .response-time {
+        color: var(--text-secondary);
+        font-size: 12px;
+      }
+
+      .entry-url {
+        font-size: 14px;
+        color: var(--text-primary);
+        margin-bottom: 15px;
+        word-break: break-all;
+      }
+
+      .entry-content {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+      }
+
+      .content-section {
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 15px;
+      }
+
+      .section-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--accent-color);
+        margin-bottom: 10px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .content-preview {
+        font-family: var(--sans);
+        line-height: 1.4;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      .content-preview:hover {
+        background: rgba(122, 162, 255, 0.05);
+        border-radius: 8px;
+      }
+
+      .open-modal {
+        cursor: pointer;
+      }
+
+      .content-preview pre {
+        font-family: var(--mono);
+        background: #0b1120;
+        padding: 8px;
+        border-radius: 6px;
+        border: 1px solid #223;
+        margin: 4px 0;
+      }
+
+      .content-preview h1,
+      .content-preview h2,
+      .content-preview h3 {
+        margin: 0.2rem 0 0.4rem;
+        font-size: 0.9rem;
+      }
+
+      .content-preview p {
+        margin: 0.3rem 0;
+      }
+
+      .content-preview ul {
+        margin: 0.2rem 0 0.2rem 1.2rem;
+      }
+
+      .content-preview blockquote {
+        margin: 6px 0;
+        padding: 6px 10px;
+        border-left: 3px solid #385;
+        opacity: 0.95;
+      }
+
+      .params-row {
+        display: flex;
+        gap: 8px;
+        margin: 6px 0;
+        flex-wrap: wrap;
+      }
+
+      .param-pill {
+        display: inline-flex;
+        padding: 3px 8px;
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        background: #0f1729;
+        color: var(--text-secondary);
+        font-family: var(--mono);
+        font-size: 0.7rem;
+      }
+
+      .collapsible-section {
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        margin: 6px 0;
+        background: rgba(26, 32, 48, 0.5);
+      }
+
+      .section-header {
+        padding: 8px 12px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: rgba(42, 51, 72, 0.3);
+        border-radius: 8px 8px 0 0;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--accent-color);
+        user-select: none;
+      }
+
+      .section-header:hover {
+        background: rgba(42, 51, 72, 0.5);
+      }
+
+      .section-toggle {
+        font-family: var(--mono);
+        color: var(--accent-color);
+        font-size: 0.7rem;
+      }
+
+      .section-content {
+        padding: 8px 12px;
+        border-top: 1px solid var(--border-color);
+        display: none;
+      }
+
+      .section-content.expanded {
+        display: block;
+      }
+
+      .expand-button {
+        background: none;
+        border: none;
+        color: var(--accent-color);
+        cursor: pointer;
+        font-size: 12px;
+        text-decoration: underline;
+        margin-top: 10px;
+      }
+
+      .error-message {
+        background: rgba(231, 76, 60, 0.1);
+        border: 1px solid var(--error-color);
+        color: var(--error-color);
+        border-radius: 6px;
+        padding: 8px;
+      }
+
+      .view-details-btn {
+        background: var(--accent-color);
+        border: none;
+        color: white;
+        padding: 6px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.8rem;
+        margin-top: 6px;
+        text-decoration: none;
+      }
+
+      .view-details-btn:hover {
+        background: #6b91ff;
+      }
+
+      .message-item {
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        margin: 4px 0;
+        background: rgba(13, 19, 32, 0.7);
+      }
+
+      .message-header {
+        padding: 6px 10px;
+        background: rgba(26, 32, 48, 0.5);
+        border-radius: 6px 6px 0 0;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .role-badge {
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.65rem;
+        font-weight: 700;
+      }
+
+      .role-user {
+        background: #1a4d1a;
+        color: #90ee90;
+      }
+      .role-assistant {
+        background: #1a1a4d;
+        color: #add8e6;
+      }
+      .role-system {
+        background: #4d1a1a;
+        color: #ffa07a;
+      }
+
+      .md-lazy {
+        font-size: 0.8rem;
+        line-height: 1.3;
+      }
+
+      .todo-list {
+        margin-top: 15px;
+        padding: 15px;
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+      }
+
+      .todo-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 8px;
+        padding: 8px;
+        border-radius: 8px;
+        font-size: 13px;
+      }
+
+      .todo-pending {
+        background: rgba(247, 196, 15, 0.1);
+        border-left: 3px solid var(--warning-color);
+      }
+      .todo-in_progress {
+        background: rgba(122, 162, 255, 0.1);
+        border-left: 3px solid var(--accent-color);
+      }
+      .todo-completed {
+        background: rgba(46, 204, 113, 0.1);
+        border-left: 3px solid var(--success-color);
+        text-decoration: line-through;
+      }
+
+      .modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        z-index: 1000;
+        backdrop-filter: blur(5px);
+      }
+
+      .modal-content {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        width: 90%;
+        max-width: 800px;
+        max-height: 80%;
+        overflow-y: auto;
+        box-shadow: 0 16px 64px rgba(0, 0, 0, 0.5);
+      }
+
+      .modal-header {
+        padding: 20px;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .modal-title {
+        font-size: 1.2rem;
+        font-weight: 600;
+      }
+
+      .close-button {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        font-size: 1.5rem;
+        cursor: pointer;
+        padding: 5px;
+        border-radius: 4px;
+        transition: all 0.3s ease;
+      }
+
+      .close-button:hover {
+        background: var(--bg-primary);
+        color: var(--text-primary);
+      }
+
+      .modal-body {
+        padding: 20px;
+        max-height: 60vh;
+        overflow-y: auto;
+      }
+
+      .json-tree {
+        font-family: var(--mono);
+        font-size: 0.85rem;
+        line-height: 1.4;
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 16px;
+        overflow-x: auto;
+        max-height: 60vh;
+        overflow-y: auto;
+      }
+
+      .json-node {
+        margin: 2px 0;
+      }
+
+      .json-primitive {
+        white-space: pre-wrap;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+        margin: 2px 0;
+      }
+
+      .json-key {
+        color: #9bb4ff;
+      }
+
+      .json-type {
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        margin-left: 6px;
+      }
+
+      .json-node .json-node {
+        margin-left: 16px;
+        padding-left: 10px;
+        border-left: 1px solid var(--border-color);
+      }
+
+      details.json-node > summary {
+        margin: 2px 0;
+        cursor: pointer;
+        list-style: none;
+        outline: none;
+      }
+
+      details.json-node > summary::-webkit-details-marker {
+        display: none;
+      }
+
+      details.json-node > summary::before {
+        content: '▼';
+        color: var(--text-secondary);
+        margin-right: 6px;
+        font-size: 0.7rem;
+        transition: transform 0.2s;
+      }
+
+      details.json-node:not([open]) > summary::before {
+        content: '▶';
+      }
+
+      .no-data {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--text-secondary);
+      }
+
+      .no-data i {
+        font-size: 4rem;
+        margin-bottom: 20px;
+        opacity: 0.5;
+      }
+
+      .loading {
+        text-align: center;
+        padding: 40px;
+        color: var(--text-secondary);
+      }
+
+      .spinner {
+        border: 3px solid var(--border-color);
+        border-top: 3px solid var(--accent-color);
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 20px;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      .drop-zone {
+        border: 2px dashed var(--border-color);
+        border-radius: 16px;
+        padding: 40px;
+        text-align: center;
+        color: var(--text-secondary);
+        transition: all 0.3s ease;
+        margin-bottom: 20px;
+      }
+
+      .drop-zone.drag-over {
+        border-color: var(--accent-color);
+        background: rgba(122, 162, 255, 0.05);
+      }
+
+      @media (max-width: 768px) {
+        .filter-row {
+          grid-template-columns: 1fr;
+          gap: 10px;
+        }
+
+        .entry-content {
+          grid-template-columns: 1fr;
+        }
+
+        .entry-meta {
+          flex-wrap: wrap;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>Claude Code 日志分析器</h1>
+        <p>可视化分析 Claude API 调用日志，支持 JSONL 格式 - 优化版</p>
+      </div>
+
+      <div class="toolbar">
+        <div class="drop-zone" id="dropZone">
+          <div>拖拽 JSONL 文件到这里，或者点击下方按钮选择文件</div>
+        </div>
+
+        <div class="file-section">
+          <div class="file-input-wrapper">
+            <input type="file" id="fileInput" class="file-input" accept=".jsonl,.json" />
+            <button class="file-button" onclick="document.getElementById('fileInput').click()">选择日志文件</button>
+          </div>
+          <div class="file-info" id="fileInfo">未选择文件</div>
+        </div>
+
+        <div class="stats-grid" id="statsGrid" style="display: none">
+          <div class="stat-card">
+            <div class="stat-value" id="totalRequests">0</div>
+            <div class="stat-label">总请求数</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="successRequests" style="color: var(--success-color)">0</div>
+            <div class="stat-label">成功请求</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="errorRequests" style="color: var(--error-color)">0</div>
+            <div class="stat-label">错误请求</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="avgResponseTime">0ms</div>
+            <div class="stat-label">平均响应时间</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="filters" id="filtersSection" style="display: none">
+        <div class="filter-row">
+          <input type="text" class="search-input" id="searchInput" placeholder="搜索URL或内容..." />
+          <select class="filter-select" id="methodFilter">
+            <option value="">所有方法</option>
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+            <option value="DELETE">DELETE</option>
+          </select>
+          <select class="filter-select" id="statusFilter">
+            <option value="">所有状态</option>
+            <option value="2xx">2xx 成功</option>
+            <option value="4xx">4xx 客户端错误</option>
+            <option value="5xx">5xx 服务器错误</option>
+          </select>
+          <button class="clear-button" onclick="clearFilters()">清除筛选</button>
+        </div>
+      </div>
+
+      <div class="timeline" id="timeline" style="display: none">
+        <div class="timeline-header">
+          <div class="timeline-title">API 调用时间线</div>
+          <div class="sort-controls">
+            <button class="sort-button active" data-sort="timestamp">按时间排序</button>
+            <button class="sort-button" data-sort="status">按状态排序</button>
+            <button class="sort-button" data-sort="duration">按响应时间排序</button>
+          </div>
+        </div>
+        <div class="log-entries" id="logEntries"></div>
+      </div>
+
+      <div class="no-data" id="noData">
+        <div style="font-size: 4rem; margin-bottom: 20px; opacity: 0.5">📄</div>
+        <h3>请选择一个 JSONL 日志文件</h3>
+        <p>支持 Claude Code API 调用日志格式</p>
+      </div>
+
+      <div class="loading" id="loading" style="display: none">
+        <div class="spinner"></div>
+        <p>正在解析日志文件...</p>
+      </div>
+    </div>
+
+    <div class="modal" id="contentModal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div class="modal-title" id="modalTitle">详细内容</div>
+          <button class="close-button" onclick="hideModal()">&times;</button>
+        </div>
+        <div class="modal-body" id="modalBody"></div>
+      </div>
+    </div>
+
+    <script>
+      let logData = [];
+      let filteredData = [];
+      let currentSort = 'timestamp';
+
+      // 文件处理
+      document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+
+      // 拖拽支持
+      const dropZone = document.getElementById('dropZone');
+      dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('drag-over');
+      });
+
+      dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('drag-over');
+      });
+
+      dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+          handleFile(files[0]);
         }
       });
 
-      document.querySelectorAll('.open-modal').forEach(el => {
-        el.addEventListener('click', function(e) {
-          if (e.target.closest('button') || e.target.closest('.view-full')) return;
-          const title = el.getAttribute('data-title') || '详情';
-          const content = el.getAttribute('data-content') || '';
-          showModal(title, content);
-        });
-      });
-      document.addEventListener('click', function(e) {
+      // 筛选监听
+      document.getElementById('searchInput').addEventListener('input', applyFilters);
+      document.getElementById('methodFilter').addEventListener('change', applyFilters);
+      document.getElementById('statusFilter').addEventListener('change', applyFilters);
+
+      // 查看全部链接点击处理
+      document.addEventListener('click', function (e) {
         const link = e.target.closest('.view-full');
         if (!link) return;
         e.preventDefault();
         e.stopPropagation();
         openMarkdownFull(link.dataset.md || '');
       });
-    }
 
-    // 切换可折叠区域的显示状态
-    function toggleSection(headerEl, event) {
-      if (event) {
-        event.stopPropagation(); // 阻止事件冒泡
-      }
-      
-      const section = headerEl.closest('.collapsible-section');
-      const content = section.querySelector('.section-content');
-      const toggle = headerEl.querySelector('.section-toggle');
-      
-      if (content.classList.contains('expanded')) {
-        content.classList.remove('expanded');
-        toggle.textContent = '[+]';
-      } else {
-        content.classList.add('expanded');
-        toggle.textContent = '[-]';
-        renderLazyMarkdown(content);
-      }
-    }
+      // 排序监听
+      document.querySelectorAll('.sort-button').forEach((button) => {
+        button.addEventListener('click', (e) => {
+          document.querySelectorAll('.sort-button').forEach((b) => b.classList.remove('active'));
+          e.target.classList.add('active');
+          currentSort = e.target.dataset.sort;
+          applySorting();
+        });
+      });
 
-    // 模态框控制函数
-    function showModal(title, content) {
-      const modal = document.getElementById('detailModal');
-      const modalTitle = document.getElementById('modalTitle');
-      const modalBody = document.getElementById('modalBody');
-      modalTitle.textContent = title;
-      const html = decodeURIComponent(content || '');
-      modalBody.innerHTML = html;
-      renderLazyMarkdown(modalBody);
-      modal.classList.add('show');
-    }
-
-    function showModalFromButton(button, title) {
-      const content = button.getAttribute('data-content');
-      showModal(title, content);
-    }
-
-    function hideModal() {
-      const modal = document.getElementById('detailModal');
-      modal.classList.remove('show');
-    }
-
-    // 模态框事件监听
-    document.addEventListener('DOMContentLoaded', function() {
-      const modal = document.getElementById('detailModal');
-      const modalClose = document.getElementById('modalClose');
-      
-      // 点击关闭按钮
-      modalClose.addEventListener('click', hideModal);
-      
-      // 点击模态框外部关闭
-      modal.addEventListener('click', function(e) {
-        if (e.target === modal) {
+      // 模态框控制
+      document.getElementById('contentModal').addEventListener('click', (e) => {
+        if (e.target.id === 'contentModal') {
           hideModal();
         }
       });
-      
-      // ESC键关闭
-      document.addEventListener('keydown', function(e) {
+
+      document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
           hideModal();
         }
       });
-    });
 
-    // 内容处理函数（参考visualize.html）
-    function mdBlock(text) {
-      const raw = ((window.marked && typeof window.marked.parse === 'function')
-        ? window.marked.parse(text ?? '')
-        : (text ?? '')).replaceAll('<system-reminder>', '&lt;system-reminder&gt;').replaceAll('</system-reminder>', '&lt;/system-reminder&gt;');
-      const clean = (window.DOMPurify && typeof window.DOMPurify.sanitize === 'function')
-        ? window.DOMPurify.sanitize(raw)
-        : raw;
-      const div = document.createElement('div');
-      div.innerHTML = clean;
-      return div;
-    }
+      function handleFileSelect(event) {
+        const file = event.target.files[0];
+        if (file) {
+          handleFile(file);
+        }
+      }
 
-    function openMarkdownFull(encodedMd) {
-      try {
-        const md = decodeURIComponent(encodedMd || '');
-        const node = mdBlock(md);
-        const w = window.open('', '_blank');
-        if (!w) return;
-        const html = `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>内容查看</title><style>html,body{height:100%}body{margin:0;background:#0b0d12;color:#e6e9f2;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}.wrap{max-width:960px;margin:24px auto;padding:0 16px}.card{background:#121622;border:1px solid #2a3348;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.35),0 2px 8px rgba(0,0,0,.25);padding:16px}pre,code{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}.json-tree{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;font-size:.85rem;line-height:1.4}.json-node{margin:2px 0}.json-primitive{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}.json-key{color:#9bb4ff}.json-type{color:#a7b0c3;font-size:.75rem;margin-left:6px}.json-node .json-node{margin-left:16px;padding-left:10px;border-left:1px solid #2a3348}details.json-node>summary{margin:2px 0;cursor:pointer}</style></head><body><div class="wrap"><div class="card" id="content"></div></div></body></html>`;
-        w.document.open();
-        w.document.write(html);
-        w.document.close();
-        const content = w.document.getElementById('content');
-        const m = /```json\s*([\s\S]*?)```/i.exec(md);
-        let jsonStr = null;
-        if (m && m[1]) jsonStr = m[1];
-        else if ((md.trim().startsWith('{') && md.trim().endsWith('}')) || (md.trim().startsWith('[') && md.trim().endsWith(']'))) jsonStr = md.trim();
-        if (jsonStr) {
-          let data = null;
-          try { data = JSON.parse(jsonStr); } catch {}
-          if (data !== null) {
-            function createNode(doc, key, value) {
-              if (value !== null && typeof value === 'object') {
-                const isArray = Array.isArray(value);
-                const details = doc.createElement('details');
-                details.className = 'json-node';
-                details.open = true;
-                const summary = doc.createElement('summary');
-                const k = doc.createElement('span');
-                k.className = 'json-key';
-                k.textContent = key !== null ? String(key) : (isArray ? '[]' : '{}');
-                const t = doc.createElement('span');
-                t.className = 'json-type';
-                const size = isArray ? value.length : Object.keys(value).length;
-                t.textContent = isArray ? `[Array ${size}]` : `{Object ${size}}`;
-                summary.appendChild(k);
-                summary.appendChild(t);
-                details.appendChild(summary);
-                if (isArray) {
-                  for (let i = 0; i < value.length; i++) {
-                    const child = createNode(doc, i, value[i]);
-                    details.appendChild(child);
+      function handleFile(file) {
+        if (!file.name.endsWith('.jsonl') && !file.name.endsWith('.json')) {
+          alert('请选择 .jsonl 或 .json 文件');
+          return;
+        }
+
+        document.getElementById('fileInfo').textContent = `已选择: ${file.name} (${formatFileSize(file.size)})`;
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('noData').style.display = 'none';
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            parseLogs(e.target.result);
+          } catch (error) {
+            console.error('文件解析错误:', error);
+            alert('文件解析失败，请检查文件格式');
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('noData').style.display = 'block';
+          }
+        };
+        reader.readAsText(file);
+      }
+
+      function parseLogs(content) {
+        logData = [];
+        const lines = content.trim().split('\n');
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+
+          try {
+            const entry = JSON.parse(line);
+
+            // 计算响应时间
+            const duration =
+              entry.response && entry.request
+                ? Math.round((entry.response.timestamp - entry.request.timestamp) * 1000)
+                : 0;
+
+            // 解析 SSE 响应
+            let parsedResponse = null;
+            if (entry.response && entry.response.body_raw) {
+              parsedResponse = parseAnthropicSSE(entry.response.body_raw);
+            }
+
+            logData.push({
+              ...entry,
+              id: i + 1,
+              duration,
+              parsedResponse,
+            });
+          } catch (error) {
+            console.warn(`跳过第 ${i + 1} 行，解析失败:`, error);
+          }
+        }
+
+        if (logData.length === 0) {
+          alert('未找到有效的日志条目');
+          document.getElementById('loading').style.display = 'none';
+          document.getElementById('noData').style.display = 'block';
+          return;
+        }
+
+        filteredData = [...logData];
+        updateStats();
+        renderLogs();
+
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('statsGrid').style.display = 'grid';
+        document.getElementById('filtersSection').style.display = 'block';
+        document.getElementById('timeline').style.display = 'block';
+      }
+
+      function parseAnthropicSSE(bodyRaw) {
+        try {
+          const lines = String(bodyRaw || '').split(/\r?\n/);
+          let startMsg = null;
+          let usage = null;
+          let stopReason = null;
+          const blocks = new Map();
+          for (const line of lines) {
+            const m = /^data:\s*(\{[\s\S]*\})\s*$/.exec(line);
+            if (!m) continue;
+            let evt;
+            try {
+              evt = JSON.parse(m[1]);
+            } catch {
+              continue;
+            }
+            if (evt.type === 'message_start' && evt.message) {
+              startMsg = evt.message;
+            } else if (evt.type === 'content_block_start' && evt.content_block && evt.index !== undefined) {
+              const idx = evt.index;
+              if (evt.content_block.type === 'text') {
+                blocks.set(idx, { type: 'text', text: '' });
+              } else if (evt.content_block.type === 'tool_use') {
+                blocks.set(idx, {
+                  type: 'tool_use',
+                  id: evt.content_block.id,
+                  name: evt.content_block.name,
+                  inputStr: '',
+                });
+              }
+            } else if (evt.type === 'content_block_delta' && evt.delta && evt.index !== undefined) {
+              const b = blocks.get(evt.index);
+              if (!b) continue;
+              if (evt.delta.type === 'text_delta' && b.type === 'text') {
+                b.text += evt.delta.text || '';
+              } else if (evt.delta.type === 'input_json_delta' && b.type === 'tool_use') {
+                b.inputStr += evt.delta.partial_json || '';
+              }
+            } else if (evt.type === 'message_delta') {
+              stopReason = (evt.delta && evt.delta.stop_reason) || stopReason;
+              usage = evt.usage || usage;
+            }
+          }
+          const content = Array.from(blocks.keys())
+            .sort((a, b) => a - b)
+            .map((k) => {
+              const b = blocks.get(k);
+              if (!b) return null;
+              if (b.type === 'text') return { type: 'text', text: b.text };
+              if (b.type === 'tool_use') {
+                let inputParsed = null;
+                if (b.inputStr && b.inputStr.trim()) {
+                  try {
+                    inputParsed = JSON.parse(b.inputStr);
+                  } catch {
+                    inputParsed = b.inputStr;
                   }
                 } else {
-                  for (const kk of Object.keys(value)) {
-                    const child = createNode(doc, kk, value[kk]);
-                    details.appendChild(child);
-                  }
+                  inputParsed = {};
                 }
-                return details;
-              } else {
-                const div = w.document.createElement('div');
-                div.className = 'json-node json-primitive';
-                const k = w.document.createElement('span');
-                k.className = 'json-key';
-                k.textContent = key !== null ? String(key) + ': ' : '';
-                const v = w.document.createElement('span');
-                v.textContent = JSON.stringify(value);
-                div.appendChild(k);
-                div.appendChild(v);
-                return div;
+                return { type: 'tool_use', id: b.id, name: b.name, input: inputParsed };
               }
-            }
-            const root = w.document.createElement('div');
-            root.className = 'json-tree';
-            root.appendChild(createNode(w.document, null, data));
-            content.innerHTML = '';
-            content.appendChild(root);
-            return;
+              return null;
+            })
+            .filter(Boolean);
+          if (startMsg) {
+            return {
+              id: startMsg.id,
+              type: 'message',
+              role: 'assistant',
+              model: startMsg.model,
+              content: content.length ? content : startMsg.content || [],
+              usage: usage || startMsg.usage || undefined,
+              stop_reason: stopReason || startMsg.stop_reason || null,
+            };
           }
+          return content.length ? { type: 'message', role: 'assistant', content } : bodyRaw;
+        } catch {
+          return bodyRaw;
         }
-        content.innerHTML = node.innerHTML;
-      } catch {}
-    }
-
-    function mdPreviewOrInline(text, limit = 500) {
-      const s = String(text || '');
-      if (s.length <= limit) return `<div class="md-lazy" data-md="${encodeURIComponent(s)}"></div>`;
-      return `<a href="#" class="view-details-btn view-full" data-md="${encodeURIComponent(s)}">查看全部</a>`;
-    }
-
-    function renderLazyMarkdown(root) {
-      const scope = root || document;
-      const nodes = scope.querySelectorAll('.md-lazy');
-      nodes.forEach(el => {
-        if (el.dataset.rendered === '1') return;
-        const md = decodeURIComponent(el.dataset.md || '');
-        const html = mdBlock(md);
-        el.innerHTML = html.innerHTML;
-        el.dataset.rendered = '1';
-      });
-    }
-
-    function createCollapsibleSection(title, content, isExpanded = false) {
-      const toggleIcon = isExpanded ? '[-]' : '[+]';
-      const expandedClass = isExpanded ? 'expanded' : '';
-      
-      return `
-        <div class="collapsible-section">
-          <div class="section-header" onclick="toggleSection(this, event)">
-            <span>${title}</span>
-            <span class="section-toggle">${toggleIcon}</span>
-          </div>
-          <div class="section-content ${expandedClass}">
-            ${content}
-          </div>
-        </div>
-      `;
-    }
-
-    function formatSystemContent(system) {
-      if (!system || !Array.isArray(system)) return '';
-      return system.map((item, index) => {
-        let content = '';
-        if (typeof item === 'string') {
-          content = mdPreviewOrInline(item);
-        } else if (item && item.type === 'text') {
-          content = mdPreviewOrInline(item.text || '');
-        } else {
-          const s = JSON.stringify(item, null, 2);
-          content = `<pre style="font-size: 0.7rem; margin: 4px 0;">${escapeHtml(s)}</pre>`;
-        }
-        
-        // 为每个system元素创建一个独立的可折叠区域
-        return createCollapsibleSection(
-          `System Part ${index + 1}`, 
-          content, 
-          false // 默认收起
-        );
-      }).join('');
-    }
-
-    function formatMessagesContent(messages) {
-      if (!messages || !Array.isArray(messages)) return '';
-      return messages.map((msg, msgIndex) => {
-        let contentHtml = '';
-        if (typeof msg.content === 'string') {
-          contentHtml = mdPreviewOrInline(msg.content);
-        } else if (Array.isArray(msg.content)) {
-          contentHtml = msg.content.map((item, idx) => {
-            if (item.type === 'text') {
-              return `
-                <div class="message-item" style="margin:6px 0;">
-                  <div class="message-header" style="background: rgba(26,32,48,0.5);">
-                    <span class="role-badge role-${msg.role}">${msg.role}</span>
-                    <span style="font-size:0.65rem;color:var(--sub);">Part ${idx + 1}</span>
-                  </div>
-                  ${mdPreviewOrInline(item.text || '')}
-                </div>
-              `;
-            } else if (item.type === 'tool_use') {
-              const s = JSON.stringify(item.input, null, 2);
-              return `
-                <div class="message-item" style="margin:6px 0;">
-                  <div class="message-header" style="background: rgba(26,32,48,0.5);">
-                    <span class="role-badge role-${msg.role}">${msg.role}</span>
-                    <span style="font-size:0.65rem;color:var(--sub);">Tool Use · Part ${idx + 1}</span>
-                  </div>
-                  <div style="margin: 4px 0; padding: 6px; background: rgba(122, 162, 255, 0.1); border-radius: 4px;">
-                    <div style="font-weight: 600; color: var(--accent); font-size: 0.75rem;">🔧 ${escapeHtml(item.name || 'Unknown Tool')}</div>
-                    <pre style="font-size: 0.7rem; margin: 4px 0 0 0; max-height: 100px; overflow-y: auto;">${escapeHtml(s)}</pre>
-                  </div>
-                </div>
-              `;
-            } else if (item.type === 'tool_result') {
-              if (typeof item.content === 'string') {
-                return `
-                  <div class="message-item" style="margin:6px 0;">
-                    <div class="message-header" style="background: rgba(26,32,48,0.5);">
-                      <span class="role-badge role-${msg.role}">${msg.role}</span>
-                      <span style="font-size:0.65rem;color:var(--sub);">Tool Result · Part ${idx + 1}</span>
-                    </div>
-                    <div style="margin: 4px 0; padding: 6px; background: rgba(46, 204, 113, 0.1); border-radius: 4px;">
-                      <div style="font-weight: 600; color: var(--good); font-size: 0.75rem;">📋 Tool Result</div>
-                      ${mdPreviewOrInline(item.content)}
-                    </div>
-                  </div>
-                `;
-              }
-              const s = JSON.stringify(item.content, null, 2);
-              return `
-                <div class="message-item" style="margin:6px 0;">
-                  <div class="message-header" style="background: rgba(26,32,48,0.5);">
-                    <span class="role-badge role-${msg.role}">${msg.role}</span>
-                    <span style="font-size:0.65rem;color:var(--sub);">Tool Result · Part ${idx + 1}</span>
-                  </div>
-                  <div style="margin: 4px 0; padding: 6px; background: rgba(46, 204, 113, 0.1); border-radius: 4px;">
-                    <div style="font-weight: 600; color: var(--good); font-size: 0.75rem;">📋 Tool Result</div>
-                    <pre style="font-size: 0.7rem; margin: 4px 0 0 0; max-height: 100px; overflow-y: auto;">${escapeHtml(s)}</pre>
-                  </div>
-                </div>
-              `;
-            }
-            const s = JSON.stringify(item, null, 2);
-            return `
-              <div class="message-item" style="margin:6px 0;">
-                <div class="message-header" style="background: rgba(26,32,48,0.5);">
-                  <span class="role-badge role-${msg.role}">${msg.role}</span>
-                  <span style="font-size:0.65rem;color:var(--sub);">Part ${idx + 1}</span>
-                </div>
-                <pre style="font-size: 0.7rem; margin: 4px 0;">${escapeHtml(s)}</pre>
-              </div>
-            `;
-          }).join('');
-        } else {
-          const s = JSON.stringify(msg.content, null, 2);
-          contentHtml = `<pre style="font-size: 0.7rem;">${escapeHtml(s)}</pre>`;
-        }
-        return `
-          <div class="message-item">
-            <div class="message-header">
-              <span class="role-badge role-${msg.role}">${msg.role}</span>
-              <span style="font-size:0.65rem;color:var(--sub);">${Array.isArray(msg.content) ? `Total ${msg.content.length} parts` : '1 part'}</span>
-            </div>
-            ${contentHtml}
-          </div>
-        `;
-      }).join('');
-    }
-
-    function formatToolsContent(tools) {
-      if (!tools || !Array.isArray(tools)) return '';
-      return tools.map(tool => {
-        if (typeof tool === 'object' && tool.name) {
-          const hasInputSchema = tool.input_schema && typeof tool.input_schema === 'object';
-          const inner = `
-            <div style=\"padding: 8px 10px;\">
-              ${tool.description ? mdPreviewOrInline(tool.description) : '<div style=\"font-size: 0.75rem; line-height: 1.3; color: var(--sub);\">No description</div>'}
-              ${hasInputSchema ? `
-                <details style=\"margin-top: 6px;\">
-                  <summary style=\"font-size: 0.7rem; color: var(--sub); cursor: pointer;\">Input Schema</summary>
-                  <pre style=\"font-size: 0.65rem; margin: 4px 0; padding: 6px; background: #0b1120; border-radius: 4px; border: 1px solid #223; line-height: 1.2; max-height: 150px; overflow-y: auto;\">${escapeHtml(JSON.stringify(tool.input_schema, null, 2))}</pre>
-                </details>
-              ` : ''}
-            </div>`;
-          return createCollapsibleSection(`🔧 ${escapeHtml(tool.name)}`, inner, false);
-        }
-        if (typeof tool === 'string') {
-          return `
-            <div style="margin: 4px 0; padding: 6px; background: rgba(122, 162, 255, 0.1); border-radius: 4px; font-size: 0.8rem;">
-              <div style="font-weight: 600; color: var(--accent);">🔧 ${escapeHtml(tool)}</div>
-            </div>
-          `;
-        }
-        const s = JSON.stringify(tool, null, 2);
-        return `
-          <div style="margin: 4px 0; padding: 6px; background: rgba(122, 162, 255, 0.1); border-radius: 4px;">
-            <pre style="font-size: 0.7rem;">${escapeHtml(s)}</pre>
-          </div>
-        `;
-      }).join('');
-    }
-
-    // 安全的HTML内容处理
-    function escapeHtml(text) {
-      const div = document.createElement('div');
-      div.textContent = text;
-      return div.innerHTML;
-    }
-
-    function truncateContent(text, maxLength = 5000) {
-      if (typeof text !== 'string') {
-        text = JSON.stringify(text);
       }
-      if (text.length > maxLength) {
-        return text.substring(0, maxLength) + '... [内容被截断]';
-      }
-      return text;
-    }
 
-    function parseAnthropicSSE(bodyRaw) {
-      try {
-        const lines = String(bodyRaw || '').split(/\r?\n/);
-        let startMsg = null;
-        let usage = null;
-        let stopReason = null;
-        const blocks = new Map();
-        for (const line of lines) {
-          const m = /^data:\s*(\{[\s\S]*\})\s*$/.exec(line);
-          if (!m) continue;
-          let evt; try { evt = JSON.parse(m[1]); } catch { continue; }
-          if (evt.type === 'message_start' && evt.message) {
-            startMsg = evt.message;
-          } else if (evt.type === 'content_block_start' && evt.content_block && evt.index !== undefined) {
-            const idx = evt.index;
-            if (evt.content_block.type === 'text') {
-              blocks.set(idx, { type: 'text', text: '' });
-            } else if (evt.content_block.type === 'tool_use') {
-              blocks.set(idx, { type: 'tool_use', id: evt.content_block.id, name: evt.content_block.name, inputStr: '' });
-            }
-          } else if (evt.type === 'content_block_delta' && evt.delta && evt.index !== undefined) {
-            const b = blocks.get(evt.index);
-            if (!b) continue;
-            if (evt.delta.type === 'text_delta' && b.type === 'text') {
-              b.text += evt.delta.text || '';
-            } else if (evt.delta.type === 'input_json_delta' && b.type === 'tool_use') {
-              b.inputStr += evt.delta.partial_json || '';
-            }
-          } else if (evt.type === 'message_delta') {
-            stopReason = (evt.delta && evt.delta.stop_reason) || stopReason;
-            usage = evt.usage || usage;
-          }
-        }
-        const content = Array.from(blocks.keys()).sort((a,b)=>a-b).map(k => {
-          const b = blocks.get(k);
-          if (!b) return null;
-          if (b.type === 'text') return { type: 'text', text: b.text };
-          if (b.type === 'tool_use') {
-            let inputParsed = null;
-            if (b.inputStr && b.inputStr.trim()) {
-              try { inputParsed = JSON.parse(b.inputStr); }
-              catch { inputParsed = b.inputStr; }
-            } else { inputParsed = {}; }
-            return { type: 'tool_use', id: b.id, name: b.name, input: inputParsed };
-          }
-          return null;
-        }).filter(Boolean);
-        if (startMsg) {
-          return {
-            id: startMsg.id,
-            type: 'message',
-            role: 'assistant',
-            model: startMsg.model,
-            content: content.length ? content : startMsg.content || [],
-            usage: usage || startMsg.usage || undefined,
-            stop_reason: stopReason || startMsg.stop_reason || null
-          };
-        }
-        return content.length ? { type: 'message', role: 'assistant', content } : bodyRaw;
-      } catch {
-        return bodyRaw;
+      // Markdown处理函数
+      function mdBlock(text) {
+        const raw = (
+          window.marked && typeof window.marked.parse === 'function' ? window.marked.parse(text ?? '') : text ?? ''
+        )
+          .replaceAll('<system-reminder>', '&lt;system-reminder&gt;')
+          .replaceAll('</system-reminder>', '&lt;/system-reminder&gt;');
+        const clean =
+          window.DOMPurify && typeof window.DOMPurify.sanitize === 'function' ? window.DOMPurify.sanitize(raw) : raw;
+        const div = document.createElement('div');
+        div.innerHTML = clean;
+        return div;
       }
-    }
 
-    function formatContent(content, isRequest = false) {
-      if (!content) return 'No content';
-      
-      if (isRequest) {
-        let html = '';
-        
-        // 显示参数
-        const params = [];
-        if (content.model) params.push(`model: ${content.model}`);
-        if (content.max_tokens) params.push(`max_tokens: ${content.max_tokens}`);
-        if (content.temperature !== undefined) params.push(`temperature: ${content.temperature}`);
-        
-        if (params.length > 0) {
-          html += `
-            <div class="params-row">
-              ${params.map(param => `<span class="param-pill">${escapeHtml(param)}</span>`).join('')}
-            </div>
-          `;
-        }
-        
-        // System 内容
-        if (content.system && Array.isArray(content.system)) {
-          const systemContent = formatSystemContent(content.system);
-          html += createCollapsibleSection(`System (${content.system.length})`, systemContent, false);
-        }
-        
-        // Messages 内容
-        if (content.messages && Array.isArray(content.messages)) {
-          const messagesContent = formatMessagesContent(content.messages);
-          html += createCollapsibleSection(`Messages (${content.messages.length})`, messagesContent, true);
-        }
-        
-        // Tools 内容
-        if (content.tools && Array.isArray(content.tools)) {
-          const toolsContent = formatToolsContent(content.tools);
-          html += createCollapsibleSection(`Tools (${content.tools.length})`, toolsContent, false);
-        }
-        
-        // Metadata 内容
-        if (content.metadata && typeof content.metadata === 'object') {
-          const metaStr = JSON.stringify(content.metadata, null, 2);
-          const metaHtml = `<pre style="font-size: 0.7rem; line-height: 1.3;">${escapeHtml(metaStr)}</pre>`;
-          html += createCollapsibleSection('Metadata', metaHtml, false);
-        }
-        
-        return html || 'No request content';
+      function mdPreviewOrInline(text, limit = 500) {
+        const s = String(text || '');
+        if (s.length <= limit) return `<div class="md-lazy" data-md="${encodeURIComponent(s)}"></div>`;
+        return `<a href="#" class="view-details-btn view-full" data-md="${encodeURIComponent(s)}">查看全部</a>`;
       }
-      
-      // 响应内容处理
-      if (!content) {
-        return `<div style="color: var(--sub); font-style: italic; padding: 8px;">Empty response</div>`;
-      }
-      
-      // 处理错误响应
-      if (content.error) {
-        return `
-          <div style="color: var(--bad); padding: 8px; background: rgba(231, 76, 60, 0.1); border-radius: 6px;">
-            <div style="font-weight: 600;">❌ ${escapeHtml(content.error.type)}</div>
-            <div style="margin-top: 4px; font-size: 0.9rem;">${escapeHtml(content.error.message)}</div>
-          </div>
-        `;
-      }
-      
-      // 处理 Claude API 成功响应格式
-      if (content.id || content.model || content.role || content.type === 'message') {
-        let html = '';
-        
-        // 基本信息
-        if (content.id) {
-          html += `<div style="font-size: 0.75rem; color: var(--sub); margin: 2px 0;">ID: ${escapeHtml(content.id)}</div>`;
-        }
-        if (content.model) {
-          html += `<div style="font-size: 0.75rem; color: var(--sub); margin: 2px 0;">Model: ${escapeHtml(content.model)}</div>`;
-        }
-        if (content.role) {
-          html += `<div style="font-size: 0.75rem; color: var(--sub); margin: 2px 0;">Role: ${escapeHtml(content.role)}</div>`;
-        }
-        
-        // Token 使用情况
-        if (content.usage) {
-          html += `
-            <div style="margin: 6px 0; padding: 4px; background: rgba(46, 204, 113, 0.1); border-radius: 4px;">
-              <div style="font-size: 0.75rem; color: var(--good);">📊 Token Usage</div>
-              <div style="font-size: 0.7rem; margin: 2px 0;">Input: ${content.usage.input_tokens || 0}</div>
-              <div style="font-size: 0.7rem; margin: 2px 0;">Output: ${content.usage.output_tokens || 0}</div>
-            </div>
-          `;
-        }
-        
-        // 响应内容
-        if (content.content && Array.isArray(content.content)) {
-          html += `
-            <div style="margin: 6px 0;">
-              <div style="font-weight: 600; font-size: 0.8rem; margin-bottom: 4px;">Response Content:</div>
-              ${content.content.map(item => {
-                if (item.type === 'text') {
-                  return mdPreviewOrInline(item.text || '');
-                }
-                if (item.type === 'tool_use') {
-                  const fullInput = JSON.stringify(item.input, null, 2);
-                  const tooLong = fullInput.length > 500;
-                  const preview = tooLong ? '' : `<pre style="font-size: 0.7rem; margin: 4px 0 0 0; max-height: 100px; overflow-y: auto;">${escapeHtml(fullInput)}</pre>`;
-                  const viewAll = tooLong ? `<a href="#" class="view-details-btn view-full" data-md="${encodeURIComponent('```json\n' + fullInput + '\n```')}">查看全部</a>` : '';
-                  return `
-                    <div style="margin: 4px 0; padding: 6px; background: rgba(122, 162, 255, 0.1); border-radius: 4px;">
-                      <div style="font-weight: 600; color: var(--accent); font-size: 0.75rem;">🔧 ${escapeHtml(item.name)}</div>
-                      ${preview}${viewAll}
-                    </div>
-                  `;
-                }
-                const fullItem = JSON.stringify(item, null, 2);
-                if (fullItem.length > 300) {
-                  return `<a href="#" class=\"view-details-btn view-full\" data-md=\"${encodeURIComponent('```json\\n' + fullItem + '\\n```')}\">查看全部</a>`;
-                }
-                return `<pre style=\"font-size: 0.7rem; margin: 2px 0;\">${escapeHtml(fullItem)}</pre>`;
-              }).join('')}
-            </div>
-          `;
-        }
-        
-        // 停止原因
-        if (content.stop_reason) {
-          html += `<div style="font-size: 0.75rem; color: var(--sub); margin: 2px 0;">Stop reason: ${escapeHtml(content.stop_reason)}</div>`;
-        }
-        
-        return html;
-      }
-      
-      // 处理纯文本响应
-      if (typeof content === 'string') {
-        return mdPreviewOrInline(content);
-      }
-      
-      // 处理其他对象类型
-      if (typeof content === 'object' && content !== null) {
-        const full = JSON.stringify(content, null, 2);
-        if (full.length > 1000) {
-          return `<a href="#" class=\"view-details-btn view-full\" data-md=\"${encodeURIComponent('```json\\n' + full + '\\n```')}\">查看全部</a>`;
-        }
-        return `<pre style=\"font-size: 0.7rem; line-height: 1.3;\">${escapeHtml(full)}</pre>`;
-      }
-      
-      return `<div style="color: var(--sub); font-style: italic; padding: 8px;">Empty response</div>`;
-    }
 
-    function summarizeTopLevelRequest(body) {
-      try {
-        if (!body || typeof body !== 'object') return '<div style="color: var(--sub); font-style: italic;">无</div>';
-        const pills = [];
-        const counts = [];
-        Object.entries(body).forEach(([k, v]) => {
-          if (v === null || v === undefined) return;
-          if (k === 'messages' && Array.isArray(v)) counts.push(`<span class="param-pill">messages: ${v.length}</span>`);
-          else if (k === 'system' && Array.isArray(v)) counts.push(`<span class="param-pill">system: ${v.length}</span>`);
-          else if (k === 'tools' && Array.isArray(v)) counts.push(`<span class="param-pill">tools: ${v.length}</span>`);
-          else if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') pills.push(`<span class="param-pill">${escapeHtml(`${k}: ${String(v)}`)}</span>`);
+      function renderLazyMarkdown(root) {
+        const scope = root || document;
+        const nodes = scope.querySelectorAll('.md-lazy');
+        nodes.forEach((el) => {
+          if (el.dataset.rendered === '1') return;
+          const md = decodeURIComponent(el.dataset.md || '');
+          const html = mdBlock(md);
+          el.innerHTML = html.innerHTML;
+          el.dataset.rendered = '1';
         });
-        const pillsRow = pills.length ? `<div class="params-row">${pills.join('')}</div>` : '';
-        const countsRow = counts.length ? `<div class="params-row">${counts.join('')}</div>` : '';
-        return pillsRow + countsRow || '<div style="color: var(--sub); font-style: italic;">无</div>';
-      } catch { return '<div style="color: var(--sub); font-style: italic;">无</div>'; }
-    }
+      }
 
-    function summarizeTopLevelResponse(content) {
-      try {
-        if (!content) return '<div style="color: var(--sub); font-style: italic;">空</div>';
-        if (content.error) return `<span class="param-pill" style="color: var(--bad);">error: ${escapeHtml(content.error.type || 'error')}</span>`;
-        if (typeof content === 'string') {
-          const s = content.length > 120 ? content.slice(0,120) + '...' : content;
-          return `<div class="params-row"><span class="param-pill">text: ${escapeHtml(s)}</span></div>`;
-        }
-        if (typeof content === 'object') {
-          const pills = [];
-          if (content.id) pills.push(`<span class="param-pill">id: ${escapeHtml(content.id)}</span>`);
-          if (content.model) pills.push(`<span class="param-pill">model: ${escapeHtml(content.model)}</span>`);
-          if (content.role) pills.push(`<span class="param-pill">role: ${escapeHtml(content.role)}</span>`);
-          if (content.stop_reason) pills.push(`<span class="param-pill">stop_reason: ${escapeHtml(content.stop_reason)}</span>`);
-          if (content.usage && (content.usage.input_tokens || content.usage.output_tokens)) {
-            pills.push(`<span class="param-pill">input: ${content.usage.input_tokens||0}</span>`);
-            pills.push(`<span class="param-pill">output: ${content.usage.output_tokens||0}</span>`);
+      function createCollapsibleSection(title, content, isExpanded = false) {
+        const toggleIcon = isExpanded ? '[-]' : '[+]';
+        const expandedClass = isExpanded ? 'expanded' : '';
+
+        return `
+                <div class="collapsible-section">
+                    <div class="section-header" onclick="toggleSection(this, event)">
+                        <span>${title}</span>
+                        <span class="section-toggle">${toggleIcon}</span>
+                    </div>
+                    <div class="section-content ${expandedClass}">
+                        ${content}
+                    </div>
+                </div>
+            `;
+      }
+
+      function formatSystemContent(system) {
+        if (!system || !Array.isArray(system)) return '';
+        return system
+          .map((item, index) => {
+            let content = '';
+            if (typeof item === 'string') {
+              content = mdPreviewOrInline(item);
+            } else if (item && item.type === 'text') {
+              content = mdPreviewOrInline(item.text || '');
+            } else {
+              const s = JSON.stringify(item, null, 2);
+              content = `<pre style="font-size: 0.7rem; margin: 4px 0;">${escapeHtml(s)}</pre>`;
+            }
+
+            return createCollapsibleSection(`System Part ${index + 1}`, content, false);
+          })
+          .join('');
+      }
+
+      function formatMessagesContent(messages) {
+        if (!messages || !Array.isArray(messages)) return '';
+        return messages
+          .map((msg, msgIndex) => {
+            let contentHtml = '';
+            if (typeof msg.content === 'string') {
+              contentHtml = mdPreviewOrInline(msg.content);
+            } else if (Array.isArray(msg.content)) {
+              contentHtml = msg.content
+                .map((item, idx) => {
+                  if (item.type === 'text') {
+                    return `
+                                <div class="message-item" style="margin:6px 0;">
+                                    <div class="message-header" style="background: rgba(26,32,48,0.5);">
+                                        <span class="role-badge role-${msg.role}">${msg.role}</span>
+                                        <span style="font-size:0.65rem;color:var(--text-secondary);">Part ${
+                                          idx + 1
+                                        }</span>
+                                    </div>
+                                    ${mdPreviewOrInline(item.text || '')}
+                                </div>
+                            `;
+                  } else if (item.type === 'tool_use') {
+                    const s = JSON.stringify(item.input, null, 2);
+                    return `
+                                <div class="message-item" style="margin:6px 0;">
+                                    <div class="message-header" style="background: rgba(26,32,48,0.5);">
+                                        <span class="role-badge role-${msg.role}">${msg.role}</span>
+                                        <span style="font-size:0.65rem;color:var(--text-secondary);">Tool Use · Part ${
+                                          idx + 1
+                                        }</span>
+                                    </div>
+                                    <div style="margin: 4px 0; padding: 6px; background: rgba(122, 162, 255, 0.1); border-radius: 4px;">
+                                        <div style="font-weight: 600; color: var(--accent-color); font-size: 0.75rem;">🔧 ${escapeHtml(
+                                          item.name || 'Unknown Tool'
+                                        )}</div>
+                                        <pre style="font-size: 0.7rem; margin: 4px 0 0 0; max-height: 100px; overflow-y: auto;">${escapeHtml(
+                                          s
+                                        )}</pre>
+                                    </div>
+                                </div>
+                            `;
+                  } else if (item.type === 'tool_result') {
+                    if (typeof item.content === 'string') {
+                      return `
+                                    <div class="message-item" style="margin:6px 0;">
+                                        <div class="message-header" style="background: rgba(26,32,48,0.5);">
+                                            <span class="role-badge role-${msg.role}">${msg.role}</span>
+                                            <span style="font-size:0.65rem;color:var(--text-secondary);">Tool Result · Part ${
+                                              idx + 1
+                                            }</span>
+                                        </div>
+                                        <div style="margin: 4px 0; padding: 6px; background: rgba(46, 204, 113, 0.1); border-radius: 4px;">
+                                            <div style="font-weight: 600; color: var(--success-color); font-size: 0.75rem;">📋 Tool Result</div>
+                                            ${mdPreviewOrInline(item.content)}
+                                        </div>
+                                    </div>
+                                `;
+                    }
+                    const s = JSON.stringify(item.content, null, 2);
+                    return `
+                                <div class="message-item" style="margin:6px 0;">
+                                    <div class="message-header" style="background: rgba(26,32,48,0.5);">
+                                        <span class="role-badge role-${msg.role}">${msg.role}</span>
+                                        <span style="font-size:0.65rem;color:var(--text-secondary);">Tool Result · Part ${
+                                          idx + 1
+                                        }</span>
+                                    </div>
+                                    <div style="margin: 4px 0; padding: 6px; background: rgba(46, 204, 113, 0.1); border-radius: 4px;">
+                                        <div style="font-weight: 600; color: var(--success-color); font-size: 0.75rem;">📋 Tool Result</div>
+                                        <pre style="font-size: 0.7rem; margin: 4px 0 0 0; max-height: 100px; overflow-y: auto;">${escapeHtml(
+                                          s
+                                        )}</pre>
+                                    </div>
+                                </div>
+                            `;
+                  }
+                  const s = JSON.stringify(item, null, 2);
+                  return `
+                            <div class="message-item" style="margin:6px 0;">
+                                <div class="message-header" style="background: rgba(26,32,48,0.5);">
+                                    <span class="role-badge role-${msg.role}">${msg.role}</span>
+                                    <span style="font-size:0.65rem;color:var(--text-secondary);">Part ${idx + 1}</span>
+                                </div>
+                                <pre style="font-size: 0.7rem; margin: 4px 0;">${escapeHtml(s)}</pre>
+                            </div>
+                        `;
+                })
+                .join('');
+            } else {
+              const s = JSON.stringify(msg.content, null, 2);
+              contentHtml = `<pre style="font-size: 0.7rem;">${escapeHtml(s)}</pre>`;
+            }
+            return `
+                    <div class="message-item">
+                        <div class="message-header">
+                            <span class="role-badge role-${msg.role}">${msg.role}</span>
+                            <span style="font-size:0.65rem;color:var(--text-secondary);">${
+                              Array.isArray(msg.content) ? `Total ${msg.content.length} parts` : '1 part'
+                            }</span>
+                        </div>
+                        ${contentHtml}
+                    </div>
+                `;
+          })
+          .join('');
+      }
+
+      function formatToolsContent(tools) {
+        if (!tools || !Array.isArray(tools)) return '';
+        return tools
+          .map((tool) => {
+            if (typeof tool === 'object' && tool.name) {
+              const hasInputSchema = tool.input_schema && typeof tool.input_schema === 'object';
+              const inner = `
+                        <div style="padding: 8px 10px;">
+                            ${
+                              tool.description
+                                ? mdPreviewOrInline(tool.description)
+                                : '<div style="font-size: 0.75rem; line-height: 1.3; color: var(--text-secondary);">No description</div>'
+                            }
+                            ${
+                              hasInputSchema
+                                ? `
+                                <details style="margin-top: 6px;">
+                                    <summary style="font-size: 0.7rem; color: var(--text-secondary); cursor: pointer;">Input Schema</summary>
+                                    <pre style="font-size: 0.65rem; margin: 4px 0; padding: 6px; background: #0b1120; border-radius: 4px; border: 1px solid #223; line-height: 1.2; max-height: 150px; overflow-y: auto;">${escapeHtml(
+                                      JSON.stringify(tool.input_schema, null, 2)
+                                    )}</pre>
+                                </details>
+                            `
+                                : ''
+                            }
+                        </div>`;
+              return createCollapsibleSection(`🔧 ${escapeHtml(tool.name)}`, inner, false);
+            }
+            if (typeof tool === 'string') {
+              return `
+                        <div style="margin: 4px 0; padding: 6px; background: rgba(122, 162, 255, 0.1); border-radius: 4px; font-size: 0.8rem;">
+                            <div style="font-weight: 600; color: var(--accent-color);">🔧 ${escapeHtml(tool)}</div>
+                        </div>
+                    `;
+            }
+            const s = JSON.stringify(tool, null, 2);
+            return `
+                    <div style="margin: 4px 0; padding: 6px; background: rgba(122, 162, 255, 0.1); border-radius: 4px;">
+                        <pre style="font-size: 0.7rem;">${escapeHtml(s)}</pre>
+                    </div>
+                `;
+          })
+          .join('');
+      }
+
+      function formatContent(content, isRequest = false) {
+        if (!content) return 'No content';
+
+        if (isRequest) {
+          let html = '';
+
+          // 显示参数
+          const params = [];
+          if (content.model) params.push(`model: ${content.model}`);
+          if (content.max_tokens) params.push(`max_tokens: ${content.max_tokens}`);
+          if (content.temperature !== undefined) params.push(`temperature: ${content.temperature}`);
+
+          if (params.length > 0) {
+            html += `
+                        <div class="params-row">
+                            ${params.map((param) => `<span class="param-pill">${escapeHtml(param)}</span>`).join('')}
+                        </div>
+                    `;
           }
-          const counts = [];
-          if (Array.isArray(content.content)) counts.push(`<span class="param-pill">content: ${content.content.length}</span>`);
-          const pillsRow = pills.length ? `<div class="params-row">${pills.join('')}</div>` : '';
-          const countsRow = counts.length ? `<div class="params-row">${counts.join('')}</div>` : '';
-          return pillsRow + countsRow || '<div style="color: var(--sub); font-style: italic;">空</div>';
-        }
-        return '<div style="color: var(--sub); font-style: italic;">空</div>';
-      } catch { return '<div style="color: var(--sub); font-style: italic;">空</div>'; }
-    }
 
-    function extractLatestTodoWriteInput(messages) {
-      if (!Array.isArray(messages)) return null;
-      let last = null;
-      for (const msg of messages) {
-        const content = msg && msg.content;
-        if (Array.isArray(content)) {
-          for (const part of content) {
-            if (part && part.type === 'tool_use' && part.name === 'TodoWrite') {
-              last = part.input !== undefined ? part.input : null;
+          // System 内容
+          if (content.system && Array.isArray(content.system)) {
+            const systemContent = formatSystemContent(content.system);
+            html += createCollapsibleSection(`System (${content.system.length})`, systemContent, false);
+          }
+
+          // Messages 内容
+          if (content.messages && Array.isArray(content.messages)) {
+            const messagesContent = formatMessagesContent(content.messages);
+            html += createCollapsibleSection(`Messages (${content.messages.length})`, messagesContent, true);
+          }
+
+          // Tools 内容
+          if (content.tools && Array.isArray(content.tools)) {
+            const toolsContent = formatToolsContent(content.tools);
+            html += createCollapsibleSection(`Tools (${content.tools.length})`, toolsContent, false);
+          }
+
+          // Metadata 内容
+          if (content.metadata && typeof content.metadata === 'object') {
+            const metaStr = JSON.stringify(content.metadata, null, 2);
+            const metaHtml = `<pre style="font-size: 0.7rem; line-height: 1.3;">${escapeHtml(metaStr)}</pre>`;
+            html += createCollapsibleSection('Metadata', metaHtml, false);
+          }
+
+          return html || 'No request content';
+        }
+
+        // 响应内容处理
+        if (!content) {
+          return `<div style="color: var(--text-secondary); font-style: italic; padding: 8px;">Empty response</div>`;
+        }
+
+        // 处理错误响应
+        if (content.error) {
+          return `
+                    <div style="color: var(--error-color); padding: 8px; background: rgba(231, 76, 60, 0.1); border-radius: 6px;">
+                        <div style="font-weight: 600;">❌ ${escapeHtml(content.error.type)}</div>
+                        <div style="margin-top: 4px; font-size: 0.9rem;">${escapeHtml(content.error.message)}</div>
+                    </div>
+                `;
+        }
+
+        // 处理 Claude API 成功响应格式
+        if (content.id || content.model || content.role || content.type === 'message') {
+          let html = '';
+
+          // 基本信息
+          if (content.id) {
+            html += `<div style="font-size: 0.75rem; color: var(--text-secondary); margin: 2px 0;">ID: ${escapeHtml(
+              content.id
+            )}</div>`;
+          }
+          if (content.model) {
+            html += `<div style="font-size: 0.75rem; color: var(--text-secondary); margin: 2px 0;">Model: ${escapeHtml(
+              content.model
+            )}</div>`;
+          }
+          if (content.role) {
+            html += `<div style="font-size: 0.75rem; color: var(--text-secondary); margin: 2px 0;">Role: ${escapeHtml(
+              content.role
+            )}</div>`;
+          }
+
+          // Token 使用情况
+          if (content.usage) {
+            html += `
+                        <div style="margin: 6px 0; padding: 4px; background: rgba(46, 204, 113, 0.1); border-radius: 4px;">
+                            <div style="font-size: 0.75rem; color: var(--success-color);">📊 Token Usage</div>
+                            <div style="font-size: 0.7rem; margin: 2px 0;">Input: ${
+                              content.usage.input_tokens || 0
+                            }</div>
+                            <div style="font-size: 0.7rem; margin: 2px 0;">Output: ${
+                              content.usage.output_tokens || 0
+                            }</div>
+                        </div>
+                    `;
+          }
+
+          // 响应内容
+          if (content.content && Array.isArray(content.content)) {
+            html += `
+                        <div style="margin: 6px 0;">
+                            <div style="font-weight: 600; font-size: 0.8rem; margin-bottom: 4px;">Response Content:</div>
+                            ${content.content
+                              .map((item) => {
+                                if (item.type === 'text') {
+                                  return mdPreviewOrInline(item.text || '');
+                                }
+                                if (item.type === 'tool_use') {
+                                  const fullInput = JSON.stringify(item.input, null, 2);
+                                  const tooLong = fullInput.length > 500;
+                                  const preview = tooLong
+                                    ? ''
+                                    : `<pre style="font-size: 0.7rem; margin: 4px 0 0 0; max-height: 100px; overflow-y: auto;">${escapeHtml(
+                                        fullInput
+                                      )}</pre>`;
+                                  const viewAll = tooLong
+                                    ? `<a href="#" class="view-details-btn view-full" data-md="${encodeURIComponent(
+                                        fullInput
+                                      )}">查看全部</a>`
+                                    : '';
+                                  return `
+                                        <div style="margin: 4px 0; padding: 6px; background: rgba(122, 162, 255, 0.1); border-radius: 4px;">
+                                            <div style="font-weight: 600; color: var(--accent-color); font-size: 0.75rem;">🔧 ${escapeHtml(
+                                              item.name
+                                            )}</div>
+                                            ${preview}${viewAll}
+                                        </div>
+                                    `;
+                                }
+                                const fullItem = JSON.stringify(item, null, 2);
+                                if (fullItem.length > 300) {
+                                  return `<a href="#" class="view-details-btn view-full" data-md="${encodeURIComponent(
+                                    fullItem
+                                  )}">查看全部</a>`;
+                                }
+                                return `<pre style="font-size: 0.7rem; margin: 2px 0;">${escapeHtml(fullItem)}</pre>`;
+                              })
+                              .join('')}
+                        </div>
+                    `;
+          }
+
+          // 停止原因
+          if (content.stop_reason) {
+            html += `<div style="font-size: 0.75rem; color: var(--text-secondary); margin: 2px 0;">Stop reason: ${escapeHtml(
+              content.stop_reason
+            )}</div>`;
+          }
+
+          return html;
+        }
+
+        // 处理纯文本响应
+        if (typeof content === 'string') {
+          return mdPreviewOrInline(content);
+        }
+
+        // 处理其他对象类型
+        if (typeof content === 'object' && content !== null) {
+          const full = JSON.stringify(content, null, 2);
+          if (full.length > 1000) {
+            return `<a href="#" class="view-details-btn view-full" data-md="${encodeURIComponent(full)}">查看全部</a>`;
+          }
+          return `<pre style="font-size: 0.7rem; line-height: 1.3;">${escapeHtml(full)}</pre>`;
+        }
+
+        return `<div style="color: var(--text-secondary); font-style: italic; padding: 8px;">Empty response</div>`;
+      }
+
+      // 安全的HTML内容处理
+      function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      function updateStats() {
+        const total = logData.length;
+        const success = logData.filter(
+          (entry) => entry.response && entry.response.status_code >= 200 && entry.response.status_code < 300
+        ).length;
+        const errors = logData.filter((entry) => entry.response && entry.response.status_code >= 400).length;
+        const avgTime = logData.reduce((sum, entry) => sum + entry.duration, 0) / total;
+
+        document.getElementById('totalRequests').textContent = total;
+        document.getElementById('successRequests').textContent = success;
+        document.getElementById('errorRequests').textContent = errors;
+        document.getElementById('avgResponseTime').textContent = Math.round(avgTime) + 'ms';
+      }
+
+      function applyFilters() {
+        const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+        const methodFilter = document.getElementById('methodFilter').value;
+        const statusFilter = document.getElementById('statusFilter').value;
+
+        filteredData = logData.filter((entry) => {
+          // 搜索筛选
+          if (searchTerm) {
+            const searchableContent = [
+              entry.request?.url || '',
+              entry.request?.body ? JSON.stringify(entry.request.body) : '',
+              entry.parsedResponse?.reconstructedContent || '',
+            ]
+              .join(' ')
+              .toLowerCase();
+
+            if (!searchableContent.includes(searchTerm)) {
+              return false;
             }
           }
-        }
+
+          // 方法筛选
+          if (methodFilter && entry.request?.method !== methodFilter) {
+            return false;
+          }
+
+          // 状态筛选
+          if (statusFilter && entry.response) {
+            const status = entry.response.status_code;
+            if (statusFilter === '2xx' && (status < 200 || status >= 300)) return false;
+            if (statusFilter === '4xx' && (status < 400 || status >= 500)) return false;
+            if (statusFilter === '5xx' && status < 500) return false;
+          }
+
+          return true;
+        });
+
+        applySorting();
       }
-      return last;
-    }
 
-    function renderTodoList(todos) {
-      try {
-        if (!Array.isArray(todos) || !todos.length) return '';
-        const items = todos.map(t => {
-          const status = String(t.status || '').toLowerCase();
-          const text = escapeHtml(t.content || '');
-          const cls = status === 'completed' ? 'todo-completed' : (status === 'in_progress' ? 'todo-in-progress' : 'todo-pending');
-          return `<div class="todo-item ${cls}">${text}</div>`;
-        }).join('');
-        return `<div class="todo-list">${items}</div>`;
-      } catch { return ''; }
-    }
+      function applySorting() {
+        filteredData.sort((a, b) => {
+          switch (currentSort) {
+            case 'timestamp':
+              return (b.request?.timestamp || 0) - (a.request?.timestamp || 0);
+            case 'status':
+              return (b.response?.status_code || 0) - (a.response?.status_code || 0);
+            case 'duration':
+              return b.duration - a.duration;
+            default:
+              return 0;
+          }
+        });
 
-    function createLogEntry(log, seq) {
-      try {
-        const request = log.request || {};
-        const response = log.response || {};
+        renderLogs();
+      }
+
+      function renderLogs() {
+        const container = document.getElementById('logEntries');
+        container.innerHTML = '';
+
+        if (filteredData.length === 0) {
+          container.innerHTML = '<div class="no-data"><h3>没有找到匹配的日志条目</h3></div>';
+          return;
+        }
+
+        filteredData.forEach((entry) => {
+          const logElement = createLogEntry(entry);
+          container.appendChild(logElement);
+        });
+
+        // 为动态生成的元素添加事件监听器
+        document.querySelectorAll('.open-modal').forEach((el) => {
+          el.addEventListener('click', function (e) {
+            if (e.target.closest('button') || e.target.closest('.view-full')) return;
+            const title = el.getAttribute('data-title') || '详情';
+            const content = el.getAttribute('data-content') || '';
+            showModal(title, content);
+          });
+        });
+      }
+
+      function createLogEntry(entry) {
+        const div = document.createElement('div');
+        div.className = 'log-entry';
+
+        const request = entry.request || {};
+        const response = entry.response || {};
         const method = request.method || 'UNKNOWN';
-        const url = request.url || 'No URL';
-        const statusCode = response.status_code || 'N/A';
-        const timestamp = log.timestamp.toLocaleTimeString();
+        const statusCode = response.status_code || 0;
+        const url = request.url || '';
+        const timestamp = entry.request?.timestamp ? new Date(entry.request.timestamp * 1000).toLocaleString() : '';
 
-        let statusClass = '';
-        if (statusCode >= 200 && statusCode < 300) statusClass = 'status-200';
-        else if (statusCode >= 400 && statusCode < 500) statusClass = 'status-403';
-        else if (statusCode >= 500) statusClass = 'status-500';
+        // 状态码样式
+        let statusClass = 'status-2xx';
+        if (statusCode >= 400 && statusCode < 500) statusClass = 'status-4xx';
+        if (statusCode >= 500) statusClass = 'status-5xx';
 
-        // 安全地生成内容，确保不会有HTML注入
-        const requestContent = formatContent(request.body, true);
-        const latestTodo = extractLatestTodoWriteInput(request.body?.messages);
-        const todoSection = (() => {
-          if (!latestTodo || !Array.isArray(latestTodo.todos)) return '';
-          return `<div class=\"detail-section\"><div class=\"detail-title\">任务清单</div><div class=\"detail-content\">${renderTodoList(latestTodo.todos)}</div></div>`;
-        })();
+        // 方法样式
+        const methodClass = `method-${method.toLowerCase()}`;
+
+        // 处理响应内容
         let respBody = response.body;
-        const ct = (response.headers && (response.headers['content-type'] || response.headers['Content-Type'])) || response.headers?.['content-type'.toLowerCase()] || '';
-        const looksSSE = (typeof ct === 'string' && ct.includes('text/event-stream')) || (typeof response.body_raw === 'string' && response.body_raw.includes('event:') && response.body_raw.includes('data:')) || (typeof response.headers === 'object' && Object.values(response.headers).some(v => typeof v === 'string' && v.includes('text/event-stream')));
+        const ct =
+          (response.headers && (response.headers['content-type'] || response.headers['Content-Type'])) ||
+          response.headers?.['content-type'.toLowerCase()] ||
+          '';
+        const looksSSE =
+          (typeof ct === 'string' && ct.includes('text/event-stream')) ||
+          (typeof response.body_raw === 'string' &&
+            response.body_raw.includes('event:') &&
+            response.body_raw.includes('data:')) ||
+          (typeof response.headers === 'object' &&
+            Object.values(response.headers).some((v) => typeof v === 'string' && v.includes('text/event-stream')));
         if (!respBody && looksSSE && typeof response.body_raw === 'string') {
           respBody = parseAnthropicSSE(response.body_raw);
         }
+
+        // 格式化内容
+        const requestContent = formatContent(request.body, true);
         const responseContent = formatContent(respBody, false);
 
-        const requestInline = summarizeTopLevelRequest(request.body);
-        const responseInline = summarizeTopLevelResponse(respBody);
+        // 提取任务清单
+        const latestTodo = extractLatestTodoWriteInput(request.body?.messages);
+        const todoSection = (() => {
+          if (!latestTodo || !Array.isArray(latestTodo.todos)) return '';
+          return `<div class="content-section"><div class="section-title">任务清单</div><div class="content-preview">${renderTodoList(
+            latestTodo.todos
+          )}</div></div>`;
+        })();
 
-        const logId = `log_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
-        const html = `<div class="log-entry" data-log-id="${logId}">
-          <div class="log-timestamp">${timestamp}</div>
-          <div class="log-content">
-            <div class="log-header">
-              <span class="pill">#${seq}</span>
-              <span class="pill method-${method}">${method}</span>
-              <span class="pill ${statusClass}">${statusCode}</span>
-              ${log.duration !== null ? `<span class="pill" style="background: #2d4a2d; border-color: #4a7c59;">${log.duration}ms</span>` : ''}
-              <a href="#" class="view-details-btn view-full" style="margin-left:auto;" data-md="${encodeURIComponent(JSON.stringify((() => { const {id, timestamp, requestTimestamp, responseTimestamp, duration, ...rest} = log; return rest; })(), null, 2))}">原始JSON</a>
-            </div>
-            <div class="log-url">${escapeHtml(url)}</div>
-            <div class="log-details">${todoSection}
-              <div class="detail-section">
-                <div class="detail-title">请求内容</div>
-                <div class="detail-content open-modal" data-title="请求详情" data-content="${encodeURIComponent(requestContent)}">
-                  <div class="content-preview">${requestInline}</div>
+        div.innerHTML = `
+                <div class="entry-header">
+                    <div class="entry-meta">
+                        <span class="entry-id">#${entry.id}</span>
+                        <span class="method-badge ${methodClass}">${method}</span>
+                        <span class="status-badge ${statusClass}">${statusCode}</span>
+                        <span class="response-time">${entry.duration}ms</span>
+                        <a href="#" class="view-details-btn view-full" style="margin-left:auto;" data-md="${encodeURIComponent(
+                          JSON.stringify(
+                            (() => {
+                              const {
+                                id,
+                                timestamp,
+                                requestTimestamp,
+                                responseTimestamp,
+                                duration,
+                                parsedResponse,
+                                ...rest
+                              } = entry;
+                              return rest;
+                            })(),
+                            null,
+                            2
+                          )
+                        )}">原始JSON</a>
+                    </div>
+                    <div style="color: var(--text-secondary); font-size: 12px;">${timestamp}</div>
                 </div>
-              </div>
-              <div class="detail-section">
-                <div class="detail-title">响应内容</div>
-                <div class="detail-content ${respBody?.error ? 'error-message' : ''} open-modal" data-title="响应详情" data-content="${encodeURIComponent(responseContent)}">
-                  <div class="content-preview">${responseInline}</div>
+                <div class="entry-url">${escapeHtml(url)}</div>
+                <div class="entry-content">
+                    ${todoSection}
+                    <div class="content-section">
+                        <div class="section-title">请求内容</div>
+                        <div class="content-preview open-modal" data-title="请求详情" data-content="${encodeURIComponent(
+                          requestContent
+                        )}">${summarizeTopLevelRequest(request.body)}</div>
+                    </div>
+                    <div class="content-section">
+                        <div class="section-title">响应内容</div>
+                        <div class="content-preview ${
+                          respBody?.error ? 'error-message' : ''
+                        } open-modal" data-title="响应详情" data-content="${encodeURIComponent(
+          responseContent
+        )}">${summarizeTopLevelResponse(respBody)}</div>
+                    </div>
                 </div>
-              </div>
-            </div>
-          </div>
-        </div>`;
-        
-        return html;
-      } catch (error) {
-        console.error('创建日志条目时出错:', error);
-        return `<div class="log-entry"><div class="log-content">解析错误: ${error.message}</div></div>`;
+            `;
+
+        return div;
       }
-    }
 
-    function applyFilters() {
-      const searchTerm = elements.searchInput.value.toLowerCase();
-      const methodFilter = elements.methodFilter.value;
-      const statusFilter = elements.statusFilter.value;
+      function summarizeTopLevelRequest(body) {
+        try {
+          if (!body || typeof body !== 'object')
+            return '<div style="color: var(--text-secondary); font-style: italic;">无</div>';
+          const pills = [];
+          const counts = [];
+          Object.entries(body).forEach(([k, v]) => {
+            if (v === null || v === undefined) return;
+            if (k === 'messages' && Array.isArray(v))
+              counts.push(`<span class="param-pill">messages: ${v.length}</span>`);
+            else if (k === 'system' && Array.isArray(v))
+              counts.push(`<span class="param-pill">system: ${v.length}</span>`);
+            else if (k === 'tools' && Array.isArray(v))
+              counts.push(`<span class="param-pill">tools: ${v.length}</span>`);
+            else if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean')
+              pills.push(`<span class="param-pill">${escapeHtml(`${k}: ${String(v)}`)}</span>`);
+          });
+          const pillsRow = pills.length ? `<div class="params-row">${pills.join('')}</div>` : '';
+          const countsRow = counts.length ? `<div class="params-row">${counts.join('')}</div>` : '';
+          return pillsRow + countsRow || '<div style="color: var(--text-secondary); font-style: italic;">无</div>';
+        } catch {
+          return '<div style="color: var(--text-secondary); font-style: italic;">无</div>';
+        }
+      }
 
-      filteredLogs = logs.filter(log => {
-        const request = log.request || {};
-        const response = log.response || {};
-        
-        // 搜索过滤
-        if (searchTerm) {
-          const url = (request.url || '').toLowerCase();
-          const body = JSON.stringify(request.body || '').toLowerCase();
-          if (!url.includes(searchTerm) && !body.includes(searchTerm)) {
-            return false;
+      function summarizeTopLevelResponse(content) {
+        try {
+          if (!content) return '<div style="color: var(--text-secondary); font-style: italic;">空</div>';
+          if (content.error)
+            return `<span class="param-pill" style="color: var(--error-color);">error: ${escapeHtml(
+              content.error.type || 'error'
+            )}</span>`;
+          if (typeof content === 'string') {
+            const s = content.length > 120 ? content.slice(0, 120) + '...' : content;
+            return `<div class="params-row"><span class="param-pill">text: ${escapeHtml(s)}</span></div>`;
+          }
+          if (typeof content === 'object') {
+            const pills = [];
+            if (content.id) pills.push(`<span class="param-pill">id: ${escapeHtml(content.id)}</span>`);
+            if (content.model) pills.push(`<span class="param-pill">model: ${escapeHtml(content.model)}</span>`);
+            if (content.role) pills.push(`<span class="param-pill">role: ${escapeHtml(content.role)}</span>`);
+            if (content.stop_reason)
+              pills.push(`<span class="param-pill">stop_reason: ${escapeHtml(content.stop_reason)}</span>`);
+            if (content.usage && (content.usage.input_tokens || content.usage.output_tokens)) {
+              pills.push(`<span class="param-pill">input: ${content.usage.input_tokens || 0}</span>`);
+              pills.push(`<span class="param-pill">output: ${content.usage.output_tokens || 0}</span>`);
+            }
+            const counts = [];
+            if (Array.isArray(content.content))
+              counts.push(`<span class="param-pill">content: ${content.content.length}</span>`);
+            const pillsRow = pills.length ? `<div class="params-row">${pills.join('')}</div>` : '';
+            const countsRow = counts.length ? `<div class="params-row">${counts.join('')}</div>` : '';
+            return pillsRow + countsRow || '<div style="color: var(--text-secondary); font-style: italic;">空</div>';
+          }
+          return '<div style="color: var(--text-secondary); font-style: italic;">空</div>';
+        } catch {
+          return '<div style="color: var(--text-secondary); font-style: italic;">空</div>';
+        }
+      }
+
+      function extractLatestTodoWriteInput(messages) {
+        if (!Array.isArray(messages)) return null;
+        let last = null;
+        for (const msg of messages) {
+          const content = msg && msg.content;
+          if (Array.isArray(content)) {
+            for (const part of content) {
+              if (part && part.type === 'tool_use' && part.name === 'TodoWrite') {
+                last = part.input !== undefined ? part.input : null;
+              }
+            }
           }
         }
-
-        // 方法过滤
-        if (methodFilter && request.method !== methodFilter) {
-          return false;
-        }
-
-        // 状态过滤
-        if (statusFilter) {
-          const status = response.status_code;
-          if (statusFilter === '2xx' && !(status >= 200 && status < 300)) return false;
-          if (statusFilter === '4xx' && !(status >= 400 && status < 500)) return false;
-          if (statusFilter === '5xx' && !(status >= 500)) return false;
-        }
-
-        return true;
-      });
-
-      renderTimeline();
-    }
-
-    function sortLogs(type) {
-      // 更新按钮状态
-      document.querySelectorAll('.timeline-controls .control-btn').forEach(btn => {
-        btn.classList.remove('active');
-      });
-
-      if (type === 'time') {
-        elements.sortTime.classList.add('active');
-        filteredLogs.sort((a, b) => a.timestamp - b.timestamp);
-      } else if (type === 'status') {
-        elements.sortStatus.classList.add('active');
-        filteredLogs.sort((a, b) => {
-          const aStatus = a.response?.status_code || 0;
-          const bStatus = b.response?.status_code || 0;
-          return bStatus - aStatus;
-        });
+        return last;
       }
 
-      renderTimeline();
-    }
-  </script>
-</body>
+      function renderTodoList(todos) {
+        try {
+          if (!Array.isArray(todos) || !todos.length) return '';
+          const items = todos
+            .map((t) => {
+              const status = String(t.status || '').toLowerCase();
+              const text = escapeHtml(t.content || '');
+              const cls =
+                status === 'completed'
+                  ? 'todo-completed'
+                  : status === 'in_progress'
+                  ? 'todo-in-progress'
+                  : 'todo-pending';
+              return `<div class="todo-item ${cls}">${text}</div>`;
+            })
+            .join('');
+          return `<div class="todo-list">${items}</div>`;
+        } catch {
+          return '';
+        }
+      }
 
+      function clearFilters() {
+        document.getElementById('searchInput').value = '';
+        document.getElementById('methodFilter').value = '';
+        document.getElementById('statusFilter').value = '';
+        applyFilters();
+      }
+
+      // 切换可折叠区域的显示状态
+      function toggleSection(headerEl, event) {
+        if (event) {
+          event.stopPropagation();
+        }
+
+        const section = headerEl.closest('.collapsible-section');
+        const content = section.querySelector('.section-content');
+        const toggle = headerEl.querySelector('.section-toggle');
+
+        if (content.classList.contains('expanded')) {
+          content.classList.remove('expanded');
+          toggle.textContent = '[+]';
+        } else {
+          content.classList.add('expanded');
+          toggle.textContent = '[-]';
+          renderLazyMarkdown(content);
+        }
+      }
+
+      function showModal(title, content) {
+        const modal = document.getElementById('contentModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalBody = document.getElementById('modalBody');
+        modalTitle.textContent = title;
+
+        if (content) {
+          const html = decodeURIComponent(content || '');
+          modalBody.innerHTML = html;
+          renderLazyMarkdown(modalBody);
+        }
+        // 如果content为空，说明modalBody已经在调用函数中设置了内容
+
+        modal.style.display = 'block';
+        document.body.style.overflow = 'hidden'; // 防止背景滚动
+      }
+
+      function hideModal() {
+        document.getElementById('contentModal').style.display = 'none';
+        document.body.style.overflow = ''; // 恢复背景滚动
+      }
+
+      function openMarkdownFull(encodedMd) {
+        try {
+          const md = decodeURIComponent(encodedMd || '');
+          const node = mdBlock(md);
+          const w = window.open('', '_blank');
+          if (!w) return;
+          const html = `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>内容查看</title><style>html,body{height:100%}body{margin:0;background:#0b0d12;color:#e6e9f2;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}.wrap{max-width:960px;margin:24px auto;padding:0 16px}.card{background:#121622;border:1px solid #2a3348;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.35),0 2px 8px rgba(0,0,0,.25);padding:16px}pre,code{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}.json-tree{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;font-size:.85rem;line-height:1.4}.json-node{margin:2px 0}.json-primitive{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}.json-key{color:#9bb4ff}.json-type{color:#a7b0c3;font-size:.75rem;margin-left:6px}.json-node .json-node{margin-left:16px;padding-left:10px;border-left:1px solid #2a3348}details.json-node>summary{margin:2px 0;cursor:pointer}</style></head><body><div class="wrap"><div class="card" id="content"></div></div></body></html>`;
+          w.document.open();
+          w.document.write(html);
+          w.document.close();
+          const content = w.document.getElementById('content');
+          const m = /```json\s*([\s\S]*?)```/i.exec(md);
+          let jsonStr = null;
+          if (m && m[1]) jsonStr = m[1];
+          else if (
+            (md.trim().startsWith('{') && md.trim().endsWith('}')) ||
+            (md.trim().startsWith('[') && md.trim().endsWith(']'))
+          )
+            jsonStr = md.trim();
+          if (jsonStr) {
+            let data = null;
+            try {
+              data = JSON.parse(jsonStr);
+            } catch {}
+            if (data !== null) {
+              function createNode(doc, key, value) {
+                if (value !== null && typeof value === 'object') {
+                  const isArray = Array.isArray(value);
+                  const details = doc.createElement('details');
+                  details.className = 'json-node';
+                  details.open = true;
+                  const summary = doc.createElement('summary');
+                  const k = doc.createElement('span');
+                  k.className = 'json-key';
+                  k.textContent = key !== null ? String(key) : isArray ? '[]' : '{}';
+                  const t = doc.createElement('span');
+                  t.className = 'json-type';
+                  const size = isArray ? value.length : Object.keys(value).length;
+                  t.textContent = isArray ? `[Array ${size}]` : `{Object ${size}}`;
+                  summary.appendChild(k);
+                  summary.appendChild(t);
+                  details.appendChild(summary);
+                  if (isArray) {
+                    for (let i = 0; i < value.length; i++) {
+                      const child = createNode(doc, i, value[i]);
+                      details.appendChild(child);
+                    }
+                  } else {
+                    for (const kk of Object.keys(value)) {
+                      const child = createNode(doc, kk, value[kk]);
+                      details.appendChild(child);
+                    }
+                  }
+                  return details;
+                } else {
+                  const div = w.document.createElement('div');
+                  div.className = 'json-node json-primitive';
+                  const k = w.document.createElement('span');
+                  k.className = 'json-key';
+                  k.textContent = key !== null ? String(key) + ': ' : '';
+                  const v = w.document.createElement('span');
+                  v.textContent = JSON.stringify(value);
+                  div.appendChild(k);
+                  div.appendChild(v);
+                  return div;
+                }
+              }
+              const root = w.document.createElement('div');
+              root.className = 'json-tree';
+              root.appendChild(createNode(w.document, null, data));
+              content.innerHTML = '';
+              content.appendChild(root);
+              return;
+            }
+          }
+          content.innerHTML = node.innerHTML;
+        } catch {}
+      }
+
+      function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+      }
+
+      // 初始化时隐藏所有内容区域
+      document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('statsGrid').style.display = 'none';
+        document.getElementById('filtersSection').style.display = 'none';
+        document.getElementById('timeline').style.display = 'none';
+      });
+    </script>
+  </body>
 </html>
