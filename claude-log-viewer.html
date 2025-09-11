@@ -1396,19 +1396,19 @@
           }
 
           // Token 使用情况
-          if (content.usage) {
-            html += `
-                        <div style="margin: 6px 0; padding: 4px; background: rgba(46, 204, 113, 0.1); border-radius: 4px;">
-                            <div style="font-size: 0.75rem; color: var(--success-color);">📊 Token Usage</div>
-                            <div style="font-size: 0.7rem; margin: 2px 0;">Input: ${
-                              content.usage.input_tokens || 0
-                            }</div>
-                            <div style="font-size: 0.7rem; margin: 2px 0;">Output: ${
-                              content.usage.output_tokens || 0
-                            }</div>
-                        </div>
-                    `;
-          }
+          // if (content.usage) {
+          //   html += `
+          //               <div style="margin: 6px 0; padding: 4px; background: rgba(46, 204, 113, 0.1); border-radius: 4px;">
+          //                   <div style="font-size: 0.75rem; color: var(--success-color);">📊 Token Usage</div>
+          //                   <div style="font-size: 0.7rem; margin: 2px 0;">Input: ${
+          //                     content.usage.input_tokens || 0
+          //                   }</div>
+          //                   <div style="font-size: 0.7rem; margin: 2px 0;">Output: ${
+          //                     content.usage.output_tokens || 0
+          //                   }</div>
+          //               </div>
+          //           `;
+          // }
 
           // 响应内容
           if (content.content && Array.isArray(content.content)) {
